@@ -34,6 +34,10 @@ DEFAULTS: dict[str, Any] = {
     "llm_vision": False,              # grouping tier 3 (OpenRouter/Grok) opt-in
     # Grouping cascade
     "group_confidence_floor": 0.55,
+    "group_time_gap_s": 45.0,         # tier-2: same-object if shot within this gap
+    "group_gps_radius_m": 7.5,        # tier-2: and/or within this radius
+    "group_dhash_max": 10,            # tier-2: hamming distance for visual match
+    "llm_vision_model": "x-ai/grok-2-vision-1212",  # tier-3 via OpenRouter
     # Supplier crawl seeds: list of {"supplier": str, "url_pattern": str} where
     # url_pattern may contain {part} / {supplier_part}
     "supplier_sites": [],
