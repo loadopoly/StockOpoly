@@ -26,6 +26,8 @@ DEFAULTS: dict[str, Any] = {
     "default_bay_width_in": 96.0,
     "default_rack_depth_in": 42.0,
     "default_level_height_in": 60.0,
+    "default_unit_volume_in3": 64.0,  # parts with no dims: assume 4x4x4
+    "default_lead_time_days": 14.0,
     # Sharing + integration toggles
     "share_supabase": True,           # cleanly no-ops until SUPABASE_URL/key env exist;
                                       # the OFF switch fully disables (user requirement)
