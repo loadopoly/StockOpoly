@@ -1,0 +1,26 @@
+# Data and databases are never committed (house rule shared with Supply-Chain-Brain)
+engine/data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Node / app build
+node_modules/
+app/dist/
+*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# OS noise
+.DS_Store
+Thumbs.db

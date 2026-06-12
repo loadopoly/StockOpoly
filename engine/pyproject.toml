@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stockopoly"
+version = "0.1.0"
+description = "Warehouse mapping + slotting: photo-derived dimension solving, 3D location space, current/future-state slotting"
+requires-python = ">=3.10"
+# Core engine is stdlib-only by design. Optional accelerators live in
+# requirements-optional.txt (Pillow, requests, numpy) and every use of them
+# degrades gracefully when absent.
+dependencies = []
+
+[project.optional-dependencies]
+full = ["Pillow>=10", "requests>=2.31", "numpy>=1.26"]
+
+[tool.setuptools.packages.find]
+include = ["stockopoly*"]

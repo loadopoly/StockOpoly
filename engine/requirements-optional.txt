@@ -1,0 +1,7 @@
+# Optional accelerators — the engine runs without any of these.
+# Pillow: EXIF extraction + perceptual hashes for loose-photo intake
+# requests: supplier-dimension crawler live fetches (urllib fallback exists)
+# numpy: faster dimension-solver linear algebra (pure-python fallback exists)
+Pillow>=10,<13
+requests>=2.31,<3
+numpy>=1.26,<3
