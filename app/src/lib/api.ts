@@ -25,8 +25,14 @@ import type {
   Settings,
   SolveReport,
   StatusResponse,
+  SyncResult,
+  SyncStatus,
   VelocityRow,
 } from './types';
+
+// Where the engine API lives. Same-origin by default (dev proxy / engine-served
+// build); VITE_ENGINE_URL lets a statically hosted app target a remote engine.
+const ENGINE_BASE = (import.meta.env.VITE_ENGINE_URL ?? '').replace(/\/+$/, '');
 
 export class ApiError extends Error {
   status: number;
@@ -43,7 +49,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     init.headers = { 'Content-Type': 'application/json' };
     init.body = JSON.stringify(body);
   }
-  const resp = await fetch(path, init);
+  const resp = await fetch(`${ENGINE_BASE}${path}`, init);
   const text = await resp.text();
   let data: unknown = null;
   try {
@@ -67,7 +73,7 @@ const put = <T>(p: string, body?: unknown) => request<T>('PUT', p, body);
 const del = <T>(p: string) => request<T>('DELETE', p);
 
 async function upload<T>(path: string, form: FormData): Promise<T> {
-  const resp = await fetch(path, { method: 'POST', body: form });
+  const resp = await fetch(`${ENGINE_BASE}${path}`, { method: 'POST', body: form });
   const text = await resp.text();
   const data = text ? JSON.parse(text) : null;
   if (!resp.ok) {
@@ -88,7 +94,7 @@ export const api = {
   batchPhotos: (id: string) =>
     get<{ photos: Photo[] }>(`/api/batches/${encodeURIComponent(id)}/photos`),
   photoUrl: (batchId: string, file: string) =>
-    `/api/photos/${encodeURIComponent(batchId)}/${encodeURIComponent(file)}`,
+    `${ENGINE_BASE}/api/photos/${encodeURIComponent(batchId)}/${encodeURIComponent(file)}`,
   uploadBundle: (file: File) => {
     const form = new FormData();
     form.append('bundle', file, file.name);
@@ -194,4 +200,24 @@ export const api = {
   // settings
   settings: () => get<Settings>('/api/settings'),
   updateSettings: (values: Settings) => put<Settings>('/api/settings', values),
+
+  // supabase cloud mirror
+  syncStatus: () => get<SyncStatus>('/api/sync/status'),
+  syncNow: (tables?: string[]) => post<SyncResult>('/api/sync/now', tables ? { tables } : {}),
 };
+
+// Probe whether a local/remote engine is reachable. Used to fall back to the
+// Supabase-only "cloud" experience when the app is hosted on GitHub Pages with
+// no engine behind it.
+export async function engineReachable(timeoutMs = 2500): Promise<boolean> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const resp = await fetch(`${ENGINE_BASE}/api/status`, { signal: ctrl.signal });
+    return resp.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}

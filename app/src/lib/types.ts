@@ -9,7 +9,35 @@ export interface StatusResponse {
   counts: Record<string, number>;
   scb: ScbStatus;
   erp: ErpStatus;
+  sync?: SyncStatus;
   app_built: boolean;
+}
+
+export interface SyncStatus {
+  enabled: boolean;
+  auto: boolean;
+  configured: boolean;
+  url: string | null;
+  bucket: string;
+  mode: 'off' | 'unconfigured' | 'ready';
+  unsynced_photos: number;
+  watermarks: Record<string, string>;
+}
+
+export interface SyncResult {
+  mode: 'off' | 'unconfigured' | 'ready';
+  pushed: number;
+  photos?: number;
+  errors?: string[];
+}
+
+export interface CloudPhoto {
+  photo_id: string;
+  batch_id: string | null;
+  file: string | null;
+  remote_url: string | null;
+  captured_at: string | null;
+  blur_score: number | null;
 }
 
 export interface ScbStatus {
