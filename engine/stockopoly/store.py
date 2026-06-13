@@ -203,6 +203,23 @@ CREATE TABLE IF NOT EXISTS sync_state(
     key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
 """
 
+# Additive column migrations for databases created before a column existed.
+# ``CREATE TABLE IF NOT EXISTS`` never alters an existing table, so new columns
+# are applied here. Each ALTER is idempotent: SQLite raises if the column is
+# already present, which we swallow. Never drop or retype a column.
+_COLUMN_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    # Supabase cloud-mirror bookkeeping for photo binaries (Storage upload).
+    ("photos", "remote_url", "TEXT"),
+    ("photos", "synced_at", "TEXT"),
+)
+
+
+def _apply_column_migrations(cn: sqlite3.Connection) -> None:
+    for table, column, decl in _COLUMN_MIGRATIONS:
+        cols = {r["name"] for r in cn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            cn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
 
 def init_schema(cn: sqlite3.Connection | None = None) -> None:
     own = cn is None
@@ -210,6 +227,7 @@ def init_schema(cn: sqlite3.Connection | None = None) -> None:
         cn = open_conn()
     try:
         cn.executescript(_SCHEMA)
+        _apply_column_migrations(cn)
         cn.commit()
     finally:
         if own:

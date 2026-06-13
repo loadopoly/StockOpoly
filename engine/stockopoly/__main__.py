@@ -8,6 +8,7 @@ Commands::
     ingest PATH          capture bundle (zip/dir) or folder of loose JPEGs
     solve                run the dimension solver over the current graph
     status               one-page JSON state summary
+    sync                 push structured data + photos to Supabase (if enabled)
 """
 from __future__ import annotations
 
@@ -32,6 +33,9 @@ def _build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--force", action="store_true")
     sub.add_parser("solve", help="solve the dimension graph")
     sub.add_parser("status", help="print state summary")
+    sync = sub.add_parser("sync", help="push structured data + photos to Supabase")
+    sync.add_argument("--tables", nargs="*",
+                      help="limit to these local tables (default: all + photos)")
     return p
 
 
@@ -156,6 +160,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "solve":
         from . import dims
         out = dims.solve_all()
+    elif args.command == "sync":
+        from . import supabase_sync
+        out = supabase_sync.sync_now(args.tables or None)
     else:
         out = _cmd_status()
     print(json.dumps(out, indent=2))

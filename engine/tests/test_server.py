@@ -59,6 +59,14 @@ def test_status_endpoint(api):
     assert status == 200
     assert body["api"] == "stockopoly.api/1"
     assert "batches" in body["counts"]
+    # cloud-mirror status travels with the engine status (unconfigured here)
+    assert body["sync"]["mode"] in ("off", "unconfigured", "ready")
+
+
+def test_sync_status_route(api):
+    status, body = api("GET", "/api/sync/status")
+    assert status == 200
+    assert "mode" in body and "bucket" in body
 
 
 def test_head_probe(api):

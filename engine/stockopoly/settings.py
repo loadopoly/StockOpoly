@@ -31,6 +31,9 @@ DEFAULTS: dict[str, Any] = {
     # Sharing + integration toggles
     "share_supabase": True,           # cleanly no-ops until SUPABASE_URL/key env exist;
                                       # the OFF switch fully disables (user requirement)
+    "auto_sync": True,                # push to Supabase automatically after each mutation
+                                      # (still gated by share_supabase + env config)
+    "supabase_bucket": "stockopoly-photos",  # Storage bucket for uploaded photo binaries
     "crawl_live": True,               # live supplier crawl on explicit user action only
     "scb_vision": False,              # grouping tier 1 (SCB-native) opt-in
     "llm_vision": False,              # grouping tier 3 (OpenRouter/Grok) opt-in

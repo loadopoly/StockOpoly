@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import API_VERSION, __version__, dims, events, grouping, intake, \
-    scb_link, settings, slotting
+    scb_link, settings, slotting, supabase_sync
 from . import locations as loc_mod
 from .imports import erp, import_inventory, import_parts, import_po_history, \
     import_usage
@@ -84,6 +84,7 @@ def _status(_req) -> dict:
     return {"api": API_VERSION, "version": __version__,
             "db": str(db_path()), "data_dir": str(data_dir()),
             "counts": counts, "scb": scb_link.status(),
+            "sync": supabase_sync.sync_status(),
             "erp": erp.erp_available(), "app_built": APP_DIST.exists()}
 
 
@@ -360,6 +361,10 @@ def _routes() -> list[tuple[str, re.Pattern, Callable]]:
         ("GET", r"/api/scb/status", lambda r: scb_link.status()),
         ("POST", r"/api/scb/flush",
          lambda r: {"flushed": scb_link.flush_outbox()}),
+        # supabase cloud mirror (structured data + photos)
+        ("GET", r"/api/sync/status", lambda r: supabase_sync.sync_status()),
+        ("POST", r"/api/sync/now",
+         lambda r: supabase_sync.sync_now(r.json.get("tables") if r.body else None)),
     ]
     return [(m, re.compile("^" + p + "$"), fn) for m, p, fn in table]
 
@@ -452,6 +457,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, result[0], result[1])
             else:
                 self._send_json(200, result if result is not None else {"ok": True})
+            # Any successful mutation kicks an automatic cloud mirror (no-op
+            # unless sharing is on + configured). The sync endpoints themselves
+            # are excluded so a manual sync doesn't re-trigger itself.
+            if method != "GET" and not path.startswith("/api/sync"):
+                supabase_sync.sync_async()
             return
         if method in ("GET", "HEAD"):
             self._static(path)
