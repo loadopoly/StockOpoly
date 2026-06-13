@@ -147,7 +147,9 @@ def test_grouping_and_slotting_flow_over_http(api, tmp_path):
     assert status == 200 and len(out["assignments"]) >= 2
 
 
-def test_spa_hint_without_build(api):
-    status, out = api("GET", "/")
+def test_root_serves_ui_or_hint(api):
+    # With app/dist built, "/" serves the SPA index.html; without a build it
+    # returns a JSON service hint. Both name the service, so accept either.
+    status, body = api("GET", "/", raw=True)
     assert status == 200
-    assert out.get("service") == "StockOpoly" or "<!doctype" in str(out).lower()
+    assert "stockopoly" in body.decode("utf-8", "replace").lower()
