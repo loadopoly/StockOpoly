@@ -84,3 +84,20 @@ allowed to pull in the Brain's heavier (pandas) stack; the engine core stays
 stdlib-only. If `fetch_logical`'s signature changes, update `pull()`. The
 bridge degrades to a clear `RuntimeError` when the env flag, the sibling
 checkout, or the import is missing — never a hard dependency.
+
+## 5. Shared Supabase project (soft integration surface)
+
+Not a contract StockOpoly *consumes* — StockOpoly **owns** its remote schema —
+but it shares one Supabase **project** and the OCR app's env-var names so the
+hosted dashboard can point at the same backend with no new config:
+
+- Env vars: `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` (app, browser) and
+  `SUPABASE_URL` + `SUPABASE_SERVICE_KEY`/`SUPABASE_ANON_KEY` (engine). These
+  match `../Loadopoly-OCR/.env.example`.
+- StockOpoly writes only **prefixed** objects: `stockopoly_*` tables and the
+  `stockopoly-photos` Storage bucket, so it never collides with OCR's
+  `historical_documents_global` / `corpus-images`. The DDL is shipped at
+  `engine/sql/supabase_schema.sql` (idempotent; apply once).
+- Producer/consumer of these tables both live **here**: producer
+  `engine/stockopoly/supabase_sync.py` (`_TABLES`, `_PHOTOS_TABLE`), consumer
+  `app/src/lib/cloud.ts`. Change them together and re-run the DDL.

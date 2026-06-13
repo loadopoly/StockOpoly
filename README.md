@@ -56,7 +56,24 @@ receiver 8787, Streamlit 8501): engine **8181**, app dev **3001**.
 - The engine's **`/intake`** endpoint is wire-compatible with the Brain's
   photogrammetry receiver, so the Operate Console can uplink captures straight
   to StockOpoly with zero app changes.
-- Optional **Supabase** sharing is toggleable and a clean no-op without config.
+- **Automatic Supabase mirror** (`engine/stockopoly/supabase_sync.py`): when
+  sharing is on and credentials exist, every mutation pushes structured rows to
+  PostgREST `stockopoly_*` tables **and uploads photo binaries** to a Storage
+  bucket — in the background, non-blocking. The `share_supabase` OFF switch
+  fully disables it; absent config is a clean no-op. Apply
+  `engine/sql/supabase_schema.sql` once to the project (the same one the Operate
+  Console uses).
 
 Raw photos and SQLite files live under `engine/data/` and are **never
 committed**.
+
+## Hosting on GitHub Pages
+
+The app deploys to GitHub Pages the same way GeoGraph OCR does
+(`.github/workflows/deploy-pages.yml` → `actions/deploy-pages`). With no engine
+behind it, the hosted app runs in **cloud mode**: it reads the `stockopoly_*`
+tables the engine mirrored and can upload captures straight to Supabase Storage.
+It uses the same `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` variables as the
+OCR app — set them as repository *Variables*, enable Pages (source: GitHub
+Actions), and the build inlines them. `VITE_ENGINE_URL` optionally points the
+static app at a live engine instead.

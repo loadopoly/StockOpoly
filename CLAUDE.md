@@ -61,10 +61,18 @@ orchestra (OCR app 3000, SCB receiver 8787, Streamlit 8501).
   (`stockopoly.api/1`) + static `app/dist`; **bundle intake is wire-compatible
   with the Brain's receiver** (multipart `bundle`+`session`, HEAD probe), so the
   Operate Console can uplink here by setting its intake URL to
-  `http://<host>:8181/intake` — zero OCR-app changes.
+  `http://<host>:8181/intake` — zero OCR-app changes. Every successful mutation
+  fires `supabase_sync.sync_async()` (background, non-blocking).
+- `engine/stockopoly/supabase_sync.py` — **automatic cloud mirror**: structured
+  rows → PostgREST `stockopoly_*`, photo binaries → Storage bucket. DDL in
+  `engine/sql/supabase_schema.sql`. Gated by `share_supabase` (master OFF) +
+  `auto_sync` + `SUPABASE_URL`/key env; clean no-op otherwise.
 - `app/src/` — tab UI: Intake · Groups · Measure · Locations · Inventory ·
   Slotting · Optimize · Map3D (instanced bins, current/future/overlay) ·
-  Settings.
+  Settings. `lib/supabase.ts` + `lib/cloud.ts` give the app a **cloud mode**
+  (`components/cloud/CloudView`): with no engine reachable (GitHub Pages) it
+  reads `stockopoly_*` and uploads captures straight to Storage. Deploys via
+  `.github/workflows/deploy-pages.yml` (same `VITE_SUPABASE_*` vars as OCR).
 
 ## Rules
 
@@ -73,8 +81,12 @@ orchestra (OCR app 3000, SCB receiver 8787, Streamlit 8501).
   gracefully. No pandas, no web frameworks.
 - Raw photos and SQLite files live under `engine/data/` and are **gitignored —
   never commit captured data**.
-- Supabase sync (`supabase_sync.py`) is sharing-toggleable and a clean no-op
-  without env config. SCB learning writes are NOT gated by that toggle.
+- Supabase sync (`supabase_sync.py`) runs automatically after mutations but is
+  sharing-toggleable (`share_supabase` OFF fully disables; `auto_sync` gates only
+  the automatic trigger) and a clean no-op without env config. It uploads both
+  structured data and photo binaries. SCB learning writes are NOT gated by that
+  toggle. The remote schema (`engine/sql/supabase_schema.sql`) is StockOpoly-owned
+  — keep it in step with `_TABLES`/`_PHOTOS_TABLE` and the columns you push.
 - Frontend follows the Loadopoly-OCR design system: Tailwind dark-slate,
   `primary` = blue, large touch targets, ARIA labels on every interactive
   element.

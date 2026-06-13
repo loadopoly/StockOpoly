@@ -1,0 +1,72 @@
+name: Deploy StockOpoly app to GitHub Pages
+
+# Builds the React app (app/) and publishes it to GitHub Pages, the same
+# Actions-based mechanism the Loadopoly-OCR repo uses. The hosted app talks to
+# Supabase directly (cloud mode); set the Supabase repo variables below so the
+# build inlines them. With no engine behind it, the app reads what the engine
+# mirrors and can upload captures straight to Storage.
+
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', '.github/workflows/deploy-pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        env:
+          # Project Pages live under /<repo>/ — derive the base path from the repo name.
+          VITE_BASE: /${{ github.event.repository.name }}/
+          # Configure these as repository *Variables* (Settings → Secrets and
+          # variables → Actions → Variables). The anon key is public by design.
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_ENGINE_URL: ${{ vars.VITE_ENGINE_URL }}
+        run: npm run build
+
+      - name: SPA fallback (404 → index.html)
+        run: cp dist/index.html dist/404.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
