@@ -24,3 +24,7 @@ app/dist/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Build artifacts from tsc -b
+app/vite.config.js
+app/vite.config.d.ts
