@@ -46,6 +46,9 @@ DEFAULTS: dict[str, Any] = {
     "llm_vision_prefer_scb": True,    # tier-3: delegate to the Brain's ensemble
                                       # (model registry + router) when the SCB
                                       # sibling is reachable; else direct OpenRouter
+    "scb_vlm_cache": True,            # tier-3: recall a cached Brain VLM grouping
+                                      # for the same photo set before spending
+                                      # tokens, and write fresh results back
     # Supplier crawl seeds: list of {"supplier": str, "url_pattern": str} where
     # url_pattern may contain {part} / {supplier_part}
     "supplier_sites": [],

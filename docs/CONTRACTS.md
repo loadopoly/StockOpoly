@@ -12,6 +12,7 @@ vendored copies in lockstep with their sources.
 | Brain receiver wire format | `../VS Code/pipeline/src/photogrammetry/receiver.py` | `engine/stockopoly/server.py` (`/intake`) |
 | Brain `data_access` (optional ERP) | `../VS Code/pipeline/src/brain/data_access.py` | `engine/stockopoly/imports/erp.py` |
 | Brain LLM ensemble (optional tier-3 vision) | `../VS Code/pipeline/src/brain/llm_ensemble.py` | `engine/stockopoly/grouping/scb_dispatch.py` |
+| Brain VLM recall cache (optional) | `../VS Code/pipeline/src/brain/vlm_cache.py` | `engine/stockopoly/grouping/scb_dispatch.py` |
 
 ## 1. `loadopoly.capture/1` bundle (consumed)
 
@@ -140,5 +141,21 @@ knows; here StockOpoly actively borrows the Brain's vision compute.
   `config/brain.yaml`; unknown task names fall back to the router's `default`
   profile, so a renamed profile degrades rather than breaks.
 
+**Cheap before costed — the recall cache (`brain.vlm_cache`)**
+
+Before spending any tokens, `scb_dispatch` consults the Brain's `vlm_cache` for a
+prior grouping of the *same photo set* — keyed by the sorted photo `sha256`s, so
+a result is reusable even across re-ingests with different `photo_id`s (groups
+are stored as sha lists and remapped back on recall). A hit is served for **zero
+tokens** (`meta.route="scb_cache"`); a miss dispatches through the ensemble and
+writes the fresh result back, so the next identical batch is free. Gated by
+`scb_vlm_cache` (default on); skipped cleanly when any photo lacks a sha256 or
+the Brain (hence the cache) is unreachable. The cache lives in the same
+`local_brain.sqlite` (honours `SCB_DB_PATH`) — the Brain's own inventory OCR
+(`geograph_ocr_bridge.analyse_image`) recalls/writes the same store, so cheap
+reuse is shared system-wide. Set `SCB_FREE_ONLY=1` on the Brain to forbid the
+costed xAI/Grok fallback entirely (free OpenRouter registry only).
+
 Exercised by `engine/tests/test_grouping_dispatch.py` (real on-disk fake-Brain
-import + fallback semantics). Standalone trees simply take the direct route.
+import, recall/write-back, and fallback semantics). Standalone trees simply take
+the direct route.
