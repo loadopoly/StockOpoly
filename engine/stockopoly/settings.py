@@ -42,7 +42,13 @@ DEFAULTS: dict[str, Any] = {
     "group_time_gap_s": 45.0,         # tier-2: same-object if shot within this gap
     "group_gps_radius_m": 7.5,        # tier-2: and/or within this radius
     "group_dhash_max": 10,            # tier-2: hamming distance for visual match
-    "llm_vision_model": "x-ai/grok-2-vision-1212",  # tier-3 via OpenRouter
+    "llm_vision_model": "x-ai/grok-2-vision-1212",  # tier-3 standalone OpenRouter model
+    "llm_vision_prefer_scb": True,    # tier-3: delegate to the Brain's ensemble
+                                      # (model registry + router) when the SCB
+                                      # sibling is reachable; else direct OpenRouter
+    "scb_vlm_cache": True,            # tier-3: recall a cached Brain VLM grouping
+                                      # for the same photo set before spending
+                                      # tokens, and write fresh results back
     # Supplier crawl seeds: list of {"supplier": str, "url_pattern": str} where
     # url_pattern may contain {part} / {supplier_part}
     "supplier_sites": [],
