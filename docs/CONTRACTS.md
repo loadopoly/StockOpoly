@@ -11,6 +11,7 @@ vendored copies in lockstep with their sources.
 | Brain `learning_log` writer | `../VS Code/pipeline/src/photogrammetry/__init__.py` (or legacy `../Supply-Chain-Brain/…`) | `engine/stockopoly/scb_link.py` |
 | Brain receiver wire format | `../VS Code/pipeline/src/photogrammetry/receiver.py` | `engine/stockopoly/server.py` (`/intake`) |
 | Brain `data_access` (optional ERP) | `../VS Code/pipeline/src/brain/data_access.py` | `engine/stockopoly/imports/erp.py` |
+| Brain LLM ensemble (optional tier-3 vision) | `../VS Code/pipeline/src/brain/llm_ensemble.py` | `engine/stockopoly/grouping/scb_dispatch.py` |
 
 ## 1. `loadopoly.capture/1` bundle (consumed)
 
@@ -79,9 +80,11 @@ If the Brain receiver's field names change, mirror them in
 
 `imports/erp.py` imports `src.brain.data_access` from the Brain checkout only
 when `STOCKOPOLY_ERP=1`. It calls `fetch_logical(connector, logical_name)` and
-expects a pandas DataFrame (`.to_dict("records")`). This is the **one** place
-allowed to pull in the Brain's heavier (pandas) stack; the engine core stays
-stdlib-only. If `fetch_logical`'s signature changes, update `pull()`. The
+expects a pandas DataFrame (`.to_dict("records")`). This is the only place
+allowed to pull in the Brain's heavier **pandas** stack; the engine core stays
+stdlib-only. (The tier-3 vision delegation in §6 also imports from the Brain but
+is deliberately kept pandas-free.) If `fetch_logical`'s signature changes, update
+`pull()`. The
 bridge degrades to a clear `RuntimeError` when the env flag, the sibling
 checkout, or the import is missing — never a hard dependency.
 
@@ -101,3 +104,41 @@ hosted dashboard can point at the same backend with no new config:
 - Producer/consumer of these tables both live **here**: producer
   `engine/stockopoly/supabase_sync.py` (`_TABLES`, `_PHOTOS_TABLE`), consumer
   `app/src/lib/cloud.ts`. Change them together and re-run the DDL.
+
+## 6. Brain LLM ensemble (optional tier-3 vision delegation)
+
+`grouping/scb_dispatch.py` borrows the Brain's vision-processing capability for
+the tier-3 photo-grouping step. When the sibling checkout is importable it adds
+`<scb>/pipeline/src` to `sys.path` and calls
+`brain.llm_ensemble.llm_ensemble_call(messages, task="perception_visual")`,
+handing the Brain the same OpenAI-style multimodal request the standalone route
+(`grouping/llm.py`) would otherwise POST to OpenRouter. The Brain then owns model
+selection (`llm_router` over its `config/brain.yaml` registry) and the
+multi-provider caller (`llm_caller_openrouter`, with the xAI-Grok fallback), so
+StockOpoly stops hardcoding a single vision model and instead routes the call
+through the repo whose job that is. This is the **active** analogue of tier 1
+(§ none — see `grouping/scb_vision.py`), which only *reads* what the Brain already
+knows; here StockOpoly actively borrows the Brain's vision compute.
+
+**Contract / invariants**
+
+- *Entrypoint*: `llm_ensemble_call(messages: list, task: str) -> {"content": str, …}`.
+  Messages are OpenAI chat-multimodal (`image_url` parts are forwarded verbatim
+  by the Brain's caller); the reply's `content` is the model text.
+- *Import weight*: this path must stay **pandas-free** — it is the lightweight
+  counterpart to §4. `brain.llm_ensemble` only needs `db_path()` from
+  `brain.local_store`, which now imports pandas lazily (inside its `fetch_*`
+  helpers) for exactly this reason. If a future Brain change makes the ensemble
+  import drag in the analytics stack again, the delegation simply stops
+  activating in stdlib-first environments (it degrades, never errors) — so keep
+  that import path light.
+- *Degradation*: any failure — sibling absent, import error, offline/no-key
+  sentinel, or unparseable reply — makes `scb_dispatch.propose` return `None`,
+  and the cascade falls back to the standalone OpenRouter call. Gated by the
+  `llm_vision` setting (tier 3 on) **and** `llm_vision_prefer_scb` (default on).
+- *Task profile*: `perception_visual` is an existing vision-weighted profile in
+  `config/brain.yaml`; unknown task names fall back to the router's `default`
+  profile, so a renamed profile degrades rather than breaks.
+
+Exercised by `engine/tests/test_grouping_dispatch.py` (real on-disk fake-Brain
+import + fallback semantics). Standalone trees simply take the direct route.
