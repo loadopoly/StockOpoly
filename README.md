@@ -2,7 +2,7 @@
 
 Warehouse mapping + slotting from field photos. Third sibling of the
 Loadopoly system (alongside the **Loadopoly-OCR** capture PWA and the
-**Supply-Chain-Brain** analytics engine): ingest photo bundles, group and
+**loadopoly/VS-Code** Supply Chain Brain): ingest photo bundles, group and
 measure objects into a relational dimension solve, build a 3D location space,
 and turn current-state occupancy into an optimized future-state slotting plan
 with a day-by-day migration list.
@@ -51,7 +51,7 @@ receiver 8787, Streamlit 8501): engine **8181**, app dev **3001**.
 
 ## Integration
 
-- **Always-on learning** into the Supply-Chain-Brain `learning_log`
+- **Always-on learning** into the VS-Code workspace `learning_log`
   (`engine/stockopoly/scb_link.py`); queues locally when the Brain is absent.
 - The engine's **`/intake`** endpoint is wire-compatible with the Brain's
   photogrammetry receiver, so the Operate Console can uplink captures straight

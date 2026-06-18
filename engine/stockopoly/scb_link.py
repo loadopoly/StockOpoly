@@ -52,7 +52,13 @@ def find_scb_repo() -> Path | None:
         p = Path(env).expanduser().resolve()
         return p if p.is_dir() else None
     repo_root = _ENGINE_DIR.parent  # StockOpoly/
-    for name in ("Supply-Chain-Brain", "supply-chain-brain", "Supply-Chain-Brain-main"):
+    for name in (
+        "VS Code",
+        "VS-Code",
+        "Supply-Chain-Brain",
+        "supply-chain-brain",
+        "Supply-Chain-Brain-main",
+    ):
         cand = repo_root.parent / name
         if (cand / "pipeline").is_dir():
             return cand

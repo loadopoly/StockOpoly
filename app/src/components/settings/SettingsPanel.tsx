@@ -138,7 +138,7 @@ export default function SettingsPanel({ onActivity }: { onActivity: () => void }
 
       <div className="space-y-4">
       <Card
-        title="Supply-Chain-Brain link"
+        title="Supply Chain Brain link (VS-Code workspace)"
         actions={
           <button className="btn-ghost px-2.5" onClick={() => scb.reload()} aria-label="Refresh Brain status">
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
