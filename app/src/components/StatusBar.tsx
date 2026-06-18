@@ -33,7 +33,7 @@ export function StatusBar({
         title={
           status?.scb.scb_repo
             ? `Brain: ${status.scb.scb_repo}`
-            : 'Supply-Chain-Brain sibling not found — learning queued locally'
+            : 'VS-Code workspace not found — set SCB_REPO_DIR; learning queued locally'
         }
       >
         <Activity className="h-3 w-3" aria-hidden="true" />

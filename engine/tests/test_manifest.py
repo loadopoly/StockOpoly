@@ -37,11 +37,20 @@ def test_schema_matches_producer_types_ts():
     assert m.group(1) == SCHEMA_VERSION
 
 
+def _brain_consumer_path():
+    for name in ("VS Code", "VS-Code", "Supply-Chain-Brain"):
+        candidate = (
+            _REPO_ROOT.parent / name / "pipeline" / "src" / "photogrammetry" / "__init__.py"
+        )
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def test_schema_matches_brain_consumer():
-    consumer = (_REPO_ROOT.parent / "Supply-Chain-Brain" / "pipeline" / "src"
-                / "photogrammetry" / "__init__.py")
-    if not consumer.exists():
-        pytest.skip("Supply-Chain-Brain sibling checkout not present")
+    consumer = _brain_consumer_path()
+    if consumer is None:
+        pytest.skip("VS-Code / Supply-Chain-Brain sibling checkout not present")
     m = re.search(r"SCHEMA_VERSION\s*=\s*['\"]([^'\"]+)['\"]",
                   consumer.read_text(encoding="utf-8"))
     assert m and m.group(1) == SCHEMA_VERSION

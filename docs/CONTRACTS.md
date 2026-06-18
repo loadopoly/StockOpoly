@@ -8,9 +8,9 @@ vendored copies in lockstep with their sources.
 | Contract | Producer (source of truth) | StockOpoly consumer |
 |---|---|---|
 | `loadopoly.capture/1` bundle | `../Loadopoly-OCR/src/capture/types.ts` | `engine/stockopoly/intake/manifest.py` |
-| Brain `learning_log` writer | `../Supply-Chain-Brain/pipeline/src/photogrammetry/__init__.py` | `engine/stockopoly/scb_link.py` |
-| Brain receiver wire format | `../Supply-Chain-Brain/pipeline/src/photogrammetry/receiver.py` | `engine/stockopoly/server.py` (`/intake`) |
-| Brain `data_access` (optional ERP) | `../Supply-Chain-Brain/pipeline/src/brain/data_access.py` | `engine/stockopoly/imports/erp.py` |
+| Brain `learning_log` writer | `../VS Code/pipeline/src/photogrammetry/__init__.py` (or legacy `../Supply-Chain-Brain/…`) | `engine/stockopoly/scb_link.py` |
+| Brain receiver wire format | `../VS Code/pipeline/src/photogrammetry/receiver.py` | `engine/stockopoly/server.py` (`/intake`) |
+| Brain `data_access` (optional ERP) | `../VS Code/pipeline/src/brain/data_access.py` | `engine/stockopoly/imports/erp.py` |
 
 ## 1. `loadopoly.capture/1` bundle (consumed)
 

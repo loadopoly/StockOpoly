@@ -7,7 +7,7 @@ three-repo system:
 |---|---|
 | `loadopoly/StockOpoly` (this) | Photo-derived dimension solving, 3D location space, current/future-state slotting |
 | `loadopoly/Loadopoly-OCR` (`../Loadopoly-OCR`) | React field-capture PWA — produces `loadopoly.capture/1` bundles |
-| `loadopoly/Supply-Chain-Brain` (`../Supply-Chain-Brain`) | Python analytics Brain — learning_log / safety-stock / ERP connectors |
+| `loadopoly/VS-Code` (`../VS Code`) | Python analytics Brain (`pipeline/`) — learning_log / safety-stock / ERP connectors |
 
 Two halves in one repo: **`engine/`** (Python ≥3.10, stdlib-first) and **`app/`**
 (React 19 + Vite + TS + Tailwind + react-three-fiber).

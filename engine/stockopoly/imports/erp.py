@@ -31,7 +31,7 @@ def erp_available() -> dict:
         status["reason"] = "set STOCKOPOLY_ERP=1 to enable"
         return status
     if repo is None:
-        status["reason"] = "Supply-Chain-Brain sibling checkout not found"
+        status["reason"] = "VS-Code workspace (pipeline/) not found — set SCB_REPO_DIR"
         return status
     pipeline = repo / "pipeline"
     sys_path_added = False
