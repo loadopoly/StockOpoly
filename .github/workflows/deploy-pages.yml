@@ -50,6 +50,8 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
           VITE_ENGINE_URL: ${{ vars.VITE_ENGINE_URL }}
+          # Supply-Chain-Brain OCR endpoint (optional cheap tier before costed VLM)
+          VITE_SCB_OCR_URL: ${{ vars.VITE_SCB_OCR_URL }}
         run: npm run build
 
       - name: SPA fallback (404 → index.html)
