@@ -4,7 +4,11 @@ Cascade order (cheapest trustworthy signal wins; later tiers only add):
 
 * tier 1 — SCB-native session knowledge (``scb_vision`` setting, default off)
 * tier 2 — offline heuristics (always runs)
-* tier 3 — OpenRouter/Grok vision (``llm_vision`` setting + API key, default off)
+* tier 3 — vision LLM (``llm_vision`` setting, default off): routed through the
+  Supply-Chain-Brain ensemble when reachable (``scb_dispatch`` — the Brain owns
+  model selection + the multi-provider caller), else a direct OpenRouter/Grok
+  call (``llm``, needs ``OPENROUTER_API_KEY``). ``llm_vision_prefer_scb`` (default
+  on) controls the preference.
 
 ``run_cascade`` replaces previous *auto* proposals (source_tier ≥ 1,
 unconfirmed) but never touches manual groups (tier 0) or anything a human
@@ -20,7 +24,7 @@ from typing import Any
 
 from .. import events, settings
 from ..store import open_conn
-from . import heuristics, llm, scb_vision
+from . import heuristics, llm, scb_dispatch, scb_vision
 
 __all__ = [
     "run_cascade", "create_group", "confirm_group", "delete_group",
@@ -115,7 +119,16 @@ def run_cascade(batch_id: str) -> dict[str, Any]:
 
         if cfg.get("llm_vision"):
             tiers_run.append(3)
-            apply(llm.propose(photos, batch, cfg), 3)
+            # Prefer the Brain's ensemble (model registry + router + multi-provider
+            # caller); fall back to the standalone OpenRouter call when the Brain
+            # is unreachable. ``None`` means "Brain didn't run" → fall back; an
+            # empty list means "Brain ran, nothing to add" → don't double-spend.
+            proposals: list[dict] | None = None
+            if cfg.get("llm_vision_prefer_scb", True):
+                proposals = scb_dispatch.propose(photos, batch, cfg)
+            if proposals is None:
+                proposals = llm.propose(photos, batch, cfg)
+            apply(proposals, 3)
 
         cn.commit()
         groups = list_groups(batch_id, cn=cn)

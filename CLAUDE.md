@@ -43,7 +43,13 @@ orchestra (OCR app 3000, SCB receiver 8787, Streamlit 8501).
   stdlib manifest reader — **must stay byte-compatible with
   `../Loadopoly-OCR/src/capture/types.ts`**) + loose-JPEG batches (EXIF, dhash).
 - `engine/stockopoly/grouping/` — photo-grouping cascade: tier 1 SCB vision →
-  tier 2 offline heuristics → tier 3 OpenRouter/Grok (env-gated).
+  tier 2 offline heuristics → tier 3 vision LLM (env-gated). Tier 3 prefers the
+  Brain's ensemble (`scb_dispatch` → `brain.llm_ensemble`: registry + router +
+  multi-provider caller) when the sibling is reachable, else a direct
+  OpenRouter/Grok call (`llm`); shared prompt/encode/parse live in
+  `vision_common`. Cheap before costed: `scb_dispatch` recalls a cached Brain
+  result for the same photo set (`brain.vlm_cache`, `scb_vlm_cache` setting)
+  before spending tokens, and writes fresh results back. See `docs/CONTRACTS.md` §6.
 - `engine/stockopoly/dims/` — **relational dimension solver** (log-space WLS +
   linear sum-parts stage, Huber outliers, ungrounded-component detection).
   The algorithmic heart; `tests/test_solver.py` is its gate.
