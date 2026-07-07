@@ -31,6 +31,7 @@ import logging
 import os
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,6 +71,7 @@ _CONTENT_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/pn
 # collapse into the running pass (which re-queries, so it sees the latest data).
 _sync_lock = threading.Lock()
 _sync_running = False
+_sync_pending = False
 
 
 def _env() -> tuple[str, str]:
@@ -123,10 +125,17 @@ def _push(url: str, key: str, table: str, conflict: str, rows: list[dict]) -> bo
         return False
 
 
+def _quote_path(object_path: str) -> str:
+    """Percent-encode each path segment (spaces, #, ?, non-ASCII) so the
+    Storage key round-trips as a URL — matches the TS client's per-segment
+    ``encodeURIComponent``. The stored object key stays the raw path."""
+    return "/".join(urllib.parse.quote(seg, safe="") for seg in object_path.split("/"))
+
+
 def _upload_object(url: str, key: str, bucket: str, object_path: str,
                    content: bytes, content_type: str) -> bool:
     """PUT a binary into Supabase Storage (upsert), mirroring the JS SDK call."""
-    endpoint = f"{url}/storage/v1/object/{bucket}/{object_path}"
+    endpoint = f"{url}/storage/v1/object/{bucket}/{_quote_path(object_path)}"
     req = urllib.request.Request(
         endpoint, data=content, method="POST",
         headers={"apikey": key, "Authorization": f"Bearer {key}",
@@ -147,7 +156,7 @@ def _upload_object(url: str, key: str, bucket: str, object_path: str,
 
 
 def _public_url(url: str, bucket: str, object_path: str) -> str:
-    return f"{url}/storage/v1/object/public/{bucket}/{object_path}"
+    return f"{url}/storage/v1/object/public/{bucket}/{_quote_path(object_path)}"
 
 
 def _object_path(batch_id: str, file: str) -> str:
@@ -167,22 +176,28 @@ def _sync_tables(cn, url: str, key: str, tables: list[str] | None) -> tuple[int,
             row = cn.execute("SELECT value FROM sync_state WHERE key=?",
                              (wm_key,)).fetchone()
             watermark = row["value"] if row else ""
-            rows = [dict(r) for r in cn.execute(
-                f"SELECT * FROM {local} WHERE COALESCE({col},'') > ?"
-                f" ORDER BY {col} LIMIT ?", (watermark, _BATCH_LIMIT))]
-            if not rows:
-                continue
-            payload = [{**r, "node": _NODE} for r in rows]
-            if _push(url, key, remote, conflict, payload):
+            # Page to exhaustion so a >_BATCH_LIMIT backlog drains in one pass
+            # rather than waiting for the next trigger. rowid is the ordering
+            # tiebreaker for rows that share a watermark value.
+            while True:
+                rows = [dict(r) for r in cn.execute(
+                    f"SELECT * FROM {local} WHERE COALESCE({col},'') > ?"
+                    f" ORDER BY {col}, rowid LIMIT ?", (watermark, _BATCH_LIMIT))]
+                if not rows:
+                    break
+                payload = [{**r, "node": _NODE} for r in rows]
+                if not _push(url, key, remote, conflict, payload):
+                    errors.append(local)
+                    break
                 pushed += len(rows)
-                new_wm = max(str(r.get(col) or "") for r in rows)
+                watermark = max(str(r.get(col) or "") for r in rows)
                 cn.execute(
                     "INSERT INTO sync_state(key, value, updated_at) VALUES (?,?,?)"
                     " ON CONFLICT(key) DO UPDATE SET value=excluded.value,"
-                    " updated_at=excluded.updated_at", (wm_key, new_wm, now))
+                    " updated_at=excluded.updated_at", (wm_key, watermark, now))
                 cn.commit()
-            else:
-                errors.append(local)
+                if len(rows) < _BATCH_LIMIT:
+                    break
         else:  # full upsert, paged by rowid for stable ordering
             offset, ok = 0, True
             while True:
@@ -210,11 +225,19 @@ def _sync_photos(cn, url: str, key: str) -> tuple[int, list[str]]:
     a photo is uploaded once (``synced_at`` flag), never re-sent."""
     bucket = settings.get("supabase_bucket")
     uploaded, errors = 0, []
+    root = data_dir().resolve()
     rows = [dict(r) for r in cn.execute(
         "SELECT * FROM photos WHERE synced_at IS NULL AND abs_path IS NOT NULL"
         " ORDER BY created_at LIMIT ?", (_BATCH_LIMIT,))]
     for r in rows:
-        p = Path(r["abs_path"])
+        p = Path(r["abs_path"]).resolve()
+        # Containment: never read (and upload to a public bucket) a file that
+        # sits outside the engine data dir. A bundle manifest could otherwise
+        # point abs_path at an arbitrary host file — belt-and-braces with the
+        # intake-time traversal guard.
+        if root != p and root not in p.parents:
+            logger.warning("Skipping photo outside data dir: %s", r["abs_path"])
+            continue
         if not p.exists():
             continue
         obj = _object_path(r["batch_id"] or "loose", r["file"] or p.name)
@@ -271,27 +294,39 @@ def sync_now(tables: list[str] | None = None,
 
 def sync_async() -> bool:
     """Fire-and-forget sync on a daemon thread. No-op (returns False) unless
-    sharing is on, credentials exist, and auto-sync is enabled. Concurrent
-    triggers collapse into the single in-flight run."""
+    sharing is on, credentials exist, and auto-sync is enabled. A trigger that
+    arrives mid-run does not drop its write: it sets a pending flag so the
+    running thread does one more pass after it finishes — the last mutation of
+    a burst always reaches the cloud."""
     if not settings.get("auto_sync"):
         return False
     if sync_status()["mode"] != "ready":
         return False
-    global _sync_running
+    global _sync_running, _sync_pending
     with _sync_lock:
         if _sync_running:
+            _sync_pending = True
             return False
         _sync_running = True
+        _sync_pending = False
 
     def _run() -> None:
-        global _sync_running
-        try:
-            sync_now()
-        except Exception:  # pragma: no cover - background safety net
-            logger.exception("background Supabase sync failed")
-        finally:
+        global _sync_running, _sync_pending
+        while True:
+            try:
+                sync_now()
+            except Exception:  # pragma: no cover - background safety net
+                logger.exception("background Supabase sync failed")
             with _sync_lock:
-                _sync_running = False
+                # Clearing the running flag and observing the pending flag in
+                # one locked section: a trigger that arrives after this either
+                # sees running=False and starts a fresh thread, or set pending
+                # before we got here and gets swept below. No dropped writes,
+                # no clobbering of a successor thread.
+                if not _sync_pending:
+                    _sync_running = False
+                    return
+                _sync_pending = False  # a trigger landed mid-run — sweep again
 
     threading.Thread(target=_run, name="stockopoly-sync", daemon=True).start()
     return True
