@@ -126,9 +126,16 @@ def ingest_bundle(path: str | Path, *, verify: bool = True,
              json.dumps(manifest, separators=(",", ":"))),
         )
         fixity_failures = 0
+        staged_resolved = staged.resolve()
         for photo in photos:
             rel = photo.get("file", "")
-            abs_path = staged / rel
+            abs_path = (staged / rel).resolve()
+            if not abs_path.is_relative_to(staged_resolved):
+                # Manifest entry tries to escape the staged bundle dir — never
+                # record such a path (it would be read back verbatim later).
+                fixity_failures += 1
+                logger.warning("Skipping photo escaping bundle dir: %s", rel)
+                continue
             expected = (photo.get("sha256") or "").lower()
             if not abs_path.exists():
                 fixity_failures += 1

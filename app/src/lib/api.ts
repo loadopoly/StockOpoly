@@ -43,13 +43,32 @@ export class ApiError extends Error {
   }
 }
 
+const REQUEST_TIMEOUT_MS = 30_000;
+const UPLOAD_TIMEOUT_MS = 120_000;
+
+// fetch with a hard deadline — a wedged engine must not leave the UI pending
+// forever. AbortError surfaces as a normal rejection the callers already handle.
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method };
   if (body !== undefined) {
     init.headers = { 'Content-Type': 'application/json' };
     init.body = JSON.stringify(body);
   }
-  const resp = await fetch(`${ENGINE_BASE}${path}`, init);
+  const resp = await fetchWithTimeout(`${ENGINE_BASE}${path}`, init, REQUEST_TIMEOUT_MS);
   const text = await resp.text();
   let data: unknown = null;
   try {
@@ -73,7 +92,8 @@ const put = <T>(p: string, body?: unknown) => request<T>('PUT', p, body);
 const del = <T>(p: string) => request<T>('DELETE', p);
 
 async function upload<T>(path: string, form: FormData): Promise<T> {
-  const resp = await fetch(`${ENGINE_BASE}${path}`, { method: 'POST', body: form });
+  const resp = await fetchWithTimeout(
+    `${ENGINE_BASE}${path}`, { method: 'POST', body: form }, UPLOAD_TIMEOUT_MS);
   const text = await resp.text();
   const data = text ? JSON.parse(text) : null;
   if (!resp.ok) {

@@ -131,12 +131,23 @@ begin
   ]
   loop
     execute format('alter table public.%I enable row level security', t);
-    if not exists (
-      select 1 from pg_policies
-      where schemaname='public' and tablename=t and policyname='stockopoly_all'
-    ) then
-      execute format(
-        'create policy stockopoly_all on public.%I for all to anon, authenticated using (true) with check (true)', t);
+    -- The public anon key is baked into the hosted build, so scope it to
+    -- read + append + update only. No DELETE policy — neither the app nor the
+    -- app-facing engine key removes rows remotely (the engine's service key
+    -- bypasses RLS for maintenance). Drop the old over-broad "for all" policy
+    -- if a previous apply created it.
+    execute format('drop policy if exists stockopoly_all on public.%I', t);
+    if not exists (select 1 from pg_policies
+      where schemaname='public' and tablename=t and policyname='stockopoly_select') then
+      execute format('create policy stockopoly_select on public.%I for select to anon, authenticated using (true)', t);
+    end if;
+    if not exists (select 1 from pg_policies
+      where schemaname='public' and tablename=t and policyname='stockopoly_insert') then
+      execute format('create policy stockopoly_insert on public.%I for insert to anon, authenticated with check (true)', t);
+    end if;
+    if not exists (select 1 from pg_policies
+      where schemaname='public' and tablename=t and policyname='stockopoly_update') then
+      execute format('create policy stockopoly_update on public.%I for update to anon, authenticated using (true) with check (true)', t);
     end if;
   end loop;
 end $$;
