@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import json
 import threading
+import time
+import zipfile
 
 from stockopoly import settings, supabase_sync
 from stockopoly.__main__ import main as cli_main
-from stockopoly.store import open_conn
+from stockopoly.store import data_dir, open_conn
 from tests.helpers import make_bundle_zip
 
 
@@ -165,6 +167,92 @@ def test_sync_async_gating_and_run(monkeypatch):
     monkeypatch.setattr(supabase_sync, "sync_now", lambda *a, **k: ran.set())
     assert supabase_sync.sync_async() is True
     assert ran.wait(timeout=5)
+
+
+def test_bundle_rejects_traversal_photo_path(monkeypatch, tmp_path):
+    """A manifest photo entry that escapes the staged bundle dir must never be
+    recorded (its abs_path would later be read back and uploaded verbatim)."""
+    from stockopoly import intake
+
+    # Start from a valid bundle, then poison the manifest with a traversal entry.
+    good = make_bundle_zip(tmp_path, "sess-trav", n_photos=1)
+    poisoned = tmp_path / "poisoned.zip"
+    with zipfile.ZipFile(good) as zin:
+        manifest = json.loads(zin.read("scb_manifest.json"))
+        manifest["photos"].append({
+            "file": "../../../../../../etc/passwd",
+            "sha256": "0" * 64, "pose": {}, "quality": {},
+            "width": 1, "height": 1, "bytes": 1,
+        })
+        with zipfile.ZipFile(poisoned, "w") as zout:
+            zout.writestr("scb_manifest.json", json.dumps(manifest))
+            for name in zin.namelist():
+                if name != "scb_manifest.json":
+                    zout.writestr(name, zin.read(name))
+
+    intake.ingest_bundle(poisoned)
+    root = str(data_dir().resolve())
+    cn = open_conn()
+    try:
+        paths = [r[0] for r in cn.execute("SELECT abs_path FROM photos").fetchall()]
+    finally:
+        cn.close()
+    # No stored path may resolve outside the data dir.
+    assert paths, "the legitimate photo should still be recorded"
+    assert all(p.startswith(root) for p in paths)
+    assert not any("etc/passwd" in p for p in paths)
+
+
+def test_sync_photos_skips_paths_outside_data_dir(monkeypatch):
+    """_sync_photos must not read/upload a photos row whose abs_path escapes
+    the engine data dir, even if a poisoned row reached the table."""
+    _ready(monkeypatch)
+    cn = open_conn()
+    try:
+        cn.execute(
+            "INSERT INTO batches(batch_id, kind, source_name, created_at,"
+            " photo_count, status) VALUES ('b-evil','bundle','x','2026-01-01',1,'new')")
+        cn.execute(
+            "INSERT INTO photos(photo_id, batch_id, file, abs_path, created_at)"
+            " VALUES ('b-evil::p','b-evil','/etc/passwd','/etc/passwd','2026-01-01')")
+        cn.commit()
+    finally:
+        cn.close()
+
+    uploaded: list[str] = []
+    monkeypatch.setattr(supabase_sync, "_upload_object",
+                        lambda *a, **k: uploaded.append(a[3]) or True)
+    monkeypatch.setattr(supabase_sync, "_push", lambda *a, **k: True)
+
+    out = supabase_sync.sync_now(include_photos=True, tables=[])
+    assert out["photos"] == 0
+    assert uploaded == []
+
+
+def test_sync_async_pending_reruns(monkeypatch):
+    """A trigger that lands while a pass is running must not be dropped: the
+    running thread sweeps once more after it finishes."""
+    _ready(monkeypatch)
+    calls: list[int] = []
+    first_started = threading.Event()
+    release_first = threading.Event()
+
+    def fake_sync_now(*a, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            first_started.set()
+            release_first.wait(timeout=5)  # hold the first pass open
+
+    monkeypatch.setattr(supabase_sync, "sync_now", fake_sync_now)
+    assert supabase_sync.sync_async() is True
+    assert first_started.wait(timeout=5)
+    # Second trigger arrives mid-run → coalesced into a pending re-sweep.
+    assert supabase_sync.sync_async() is False
+    release_first.set()
+    deadline = time.monotonic() + 5
+    while len(calls) < 2 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert len(calls) == 2, "the mid-run trigger should force a second pass"
 
 
 def test_cli_sync_unconfigured(monkeypatch, capsys):

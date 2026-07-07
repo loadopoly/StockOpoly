@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import re
 import shutil
 import tempfile
@@ -42,6 +43,20 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent  # StockOpoly/
 APP_DIST = _REPO_ROOT / "app" / "dist"
 MAX_BODY_BYTES = 1 << 30
+
+# CORS: the Brain-receiver-compatible intake aliases stay wildcard so the
+# Operate Console can uplink from any origin; the JSON API reflects only
+# allowlisted origins (defaults cover the local dev app; extend via
+# STOCKOPOLY_CORS_ORIGINS, comma-separated).
+_DEFAULT_CORS_ORIGINS = (
+    "http://localhost:3000", "http://localhost:3001",
+    "http://127.0.0.1:3000", "http://127.0.0.1:3001",
+)
+
+
+def _cors_origins() -> set[str]:
+    extra = os.environ.get("STOCKOPOLY_CORS_ORIGINS", "")
+    return set(_DEFAULT_CORS_ORIGINS) | {o.strip() for o in extra.split(",") if o.strip()}
 
 _IMPORTERS = {"parts": import_parts, "inventory": import_inventory,
               "po": import_po_history, "usage": import_usage}
@@ -147,9 +162,20 @@ def _photo_file(req) -> tuple[bytes, str]:
     if row is None:
         raise ApiError(404, "Unknown photo")
     p = Path(row["abs_path"]).resolve()
-    if not str(p).startswith(str(data_dir().resolve())) or not p.exists():
+    root = data_dir().resolve()
+    if (root != p and root not in p.parents) or not p.exists():
         raise ApiError(404, "Photo file missing")
     return p.read_bytes(), _MIME.get(p.suffix.lower(), "application/octet-stream")
+
+
+def _sync_now(req) -> dict:
+    """Manual cloud-mirror trigger. Validates the optional ``tables`` field is
+    a list of table names before handing off to the sync engine."""
+    tables = req.json.get("tables") if req.body else None
+    if tables is not None and not (
+            isinstance(tables, list) and all(isinstance(t, str) for t in tables)):
+        raise ApiError(400, "'tables' must be a list of table names")
+    return supabase_sync.sync_now(tables)
 
 
 def _import_table(req) -> dict:
@@ -363,8 +389,7 @@ def _routes() -> list[tuple[str, re.Pattern, Callable]]:
          lambda r: {"flushed": scb_link.flush_outbox()}),
         # supabase cloud mirror (structured data + photos)
         ("GET", r"/api/sync/status", lambda r: supabase_sync.sync_status()),
-        ("POST", r"/api/sync/now",
-         lambda r: supabase_sync.sync_now(r.json.get("tables") if r.body else None)),
+        ("POST", r"/api/sync/now", _sync_now),
     ]
     return [(m, re.compile("^" + p + "$"), fn) for m, p, fn in table]
 
@@ -400,12 +425,26 @@ class Request:
 class Handler(BaseHTTPRequestHandler):
     server_version = f"StockOpoly/{__version__}"
     body: bytes = b""
+    # Socket inactivity deadline — a client that announces a large
+    # Content-Length then stalls must not pin a handler thread forever.
+    timeout = 60
 
     def log_message(self, fmt: str, *args) -> None:
         logger.info("%s %s", self.address_string(), fmt % args)
 
     def _cors(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        bare = urllib.parse.urlparse(self.path).path.rstrip("/")
+        if bare in ("", "/intake"):
+            # Brain-receiver-compatible intake aliases: any origin (the
+            # Operate Console may be served from anywhere).
+            self.send_header("Access-Control-Allow-Origin", "*")
+        else:
+            origin = self.headers.get("Origin")
+            if origin and origin in _cors_origins():
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
+            # Absent / non-allowlisted origin: emit nothing — same-origin and
+            # curl need no CORS header, and a drive-by page gets no read grant.
         self.send_header("Access-Control-Allow-Methods",
                          "GET, POST, PUT, DELETE, HEAD, OPTIONS")
         self.send_header("Access-Control-Allow-Headers",
@@ -424,8 +463,12 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(obj).encode(), "application/json")
 
     def _read_body(self) -> bool:
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > MAX_BODY_BYTES:
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._send_json(400, {"error": "Invalid Content-Length"})
+            return False
+        if length < 0 or length > MAX_BODY_BYTES:
             self._send_json(413, {"error": "Body too large"})
             return False
         self.body = self.rfile.read(length) if length else b""
@@ -480,7 +523,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         rel = path.lstrip("/") or "index.html"
         target = (APP_DIST / rel).resolve()
-        if not str(target).startswith(str(APP_DIST.resolve())) or not target.is_file():
+        dist_root = APP_DIST.resolve()
+        if (dist_root != target and dist_root not in target.parents) \
+                or not target.is_file():
             target = APP_DIST / "index.html"  # SPA fallback
         self._send(200, target.read_bytes(),
                    _MIME.get(target.suffix.lower(), "application/octet-stream"))
