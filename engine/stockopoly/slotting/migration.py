@@ -11,7 +11,7 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
-from .. import locations as loc_mod, settings
+from .. import locations as loc_mod, scb_link, settings
 from ..store import open_conn
 
 _HANDLING_MIN = 4.0
@@ -91,6 +91,21 @@ def build_tasks(plan_id: str) -> dict[str, Any]:
         cn.commit()
     finally:
         cn.close()
+
+    # Emit actionable body directive to SCB for physical warehouse execution
+    if moves:
+        top_move = moves[0]
+        scb_link.emit_body_directive(
+            title=f"Slotting Migration {plan_id}: {len(moves)} moves across {total_days} days",
+            why_it_matters=f"Optimizes warehouse travel cost and picker fatigue; top move relocates {top_move['part_number']} from {top_move['from']} to {top_move['to']} for {top_move['benefit']:.1f} units benefit.",
+            do_this=f"Pickers/AGVs execute Day 1 move tasks in StockOpoly (budget={budget} moves/day).",
+            owner_role="Ops",
+            priority=0.85,
+            severity="act",
+            fingerprint=f"stockopoly:slotting_plan:{plan_id}",
+            evidence={"plan_id": plan_id, "moves_count": len(moves), "days": total_days, "daily_budget": budget},
+        )
+
     return {"plan_id": plan_id, "moves": len(moves), "days": total_days,
             "daily_budget": budget}
 

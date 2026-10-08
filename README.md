@@ -63,6 +63,16 @@ receiver 8787, Streamlit 8501): engine **8181**, app dev **3001**.
   fully disables it; absent config is a clean no-op. Apply
   `engine/sql/supabase_schema.sql` once to the project (the same one the Operate
   Console uses).
+- **Closed-Loop Ecosystem Symbiosis** (`engine/stockopoly/symbiosis.py`): binds
+  Svarog's Forge (Perceptopoly), ACRE work orders, StockOpoly AGV missions,
+  Bakugo metrology, GARD Marketplace sharding (:8600), and QUIPU MESH-SLM (:7100).
+- **AGV Fleet Management** (`engine/stockopoly/agv.py`): 3D Dijkstra pathfinding,
+  dynamic waypoint routing, and material dispatch between warehouse bins and Hub assembly.
+- **4-Stream Marketplace Signals Engine** (`engine/stockopoly/marketplace_signals.py`):
+  aggregates Moltbot purchases, Grand Exchange maintenance, Hub existential requirements,
+  and Geograph-OCR corpus ingestion.
+- **Circuit Breaker & Outbox Protection** (`engine/stockopoly/dims/quipu_safety_net.py`):
+  protects the epistemic loop against transport failures and network partitions.
 
 Raw photos and SQLite files live under `engine/data/` and are **never
 committed**.
