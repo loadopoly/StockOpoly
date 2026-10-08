@@ -69,6 +69,8 @@ class SolveResult:
     outliers: list[Any]             # meas_ids with |z| > OUTLIER_Z
     iterations: int
     rms: float
+    fisher_info: dict[str, float] = field(default_factory=dict)
+    crb_bound: dict[str, float] = field(default_factory=dict)
 
 
 class _UF:
@@ -215,7 +217,9 @@ def _components(keys: list[str], measurements: list[Measurement]
 
 def solve(var_keys: list[str], photo_keys: list[str],
           measurements: list[Measurement], *, max_iter: int = 12,
-          huber_passes: int = 2) -> SolveResult:
+          huber_passes: int = 2,
+          ueqgm_phase_weight: float | None = None,
+          shard_attenuation: float | None = None) -> SolveResult:
     keys = list(dict.fromkeys(list(var_keys) + list(photo_keys)))
     usable = [m for m in measurements
               if _residual_rows(m, {k: 0.0 for k in keys}) is not None]
@@ -227,6 +231,10 @@ def solve(var_keys: list[str], photo_keys: list[str],
     x = _seed_initial(keys, usable)
 
     # Gauge priors: one weak pin per ungrounded component keeps N invertible.
+    # Modulated by UEQGM SiCi Floquet phase weight and GARD Shard attenuation when supplied.
+    atten_factor = float(shard_attenuation) if shard_attenuation else 1.0
+    pw = float(ueqgm_phase_weight) if ueqgm_phase_weight else 1.0
+    gauge_sigma = _GAUGE_SIGMA * pw * atten_factor
     gauge: list[str] = [c["members"][0] for c in comps if not c["grounded"] and c["members"]]
     # Keys not touched by any measurement still need a pin.
     touched: set[str] = set()
@@ -261,7 +269,7 @@ def solve(var_keys: list[str], photo_keys: list[str],
                         nmat[ia][index[kb]] += w * va * vb
             for k in gauge:
                 i = index[k]
-                w = 1.0 / (_GAUGE_SIGMA ** 2)
+                w = 1.0 / (gauge_sigma ** 2)
                 nmat[i][i] += w
                 gvec[i] += w * x[k]
             for i in range(n_size):
@@ -300,7 +308,7 @@ def solve(var_keys: list[str], photo_keys: list[str],
             for kb, vb in items:
                 nmat[index[ka]][index[kb]] += w * va * vb
     for k in gauge:
-        nmat[index[k]][index[k]] += 1.0 / (_GAUGE_SIGMA ** 2)
+        nmat[index[k]][index[k]] += 1.0 / (gauge_sigma ** 2)
     for i in range(n_size):
         nmat[i][i] += _RIDGE
     sig_ln: dict[str, float] = {}
@@ -328,6 +336,15 @@ def solve(var_keys: list[str], photo_keys: list[str],
             outliers.append(m.meas_id)
 
     photo_set = set(photo_keys)
+    crb_bound = {
+        k: (sig_ln[k] ** 2 if math.isfinite(sig_ln.get(k, float("inf"))) else float("inf"))
+        for k in keys if k not in photo_set
+    }
+    fisher_info = {
+        k: (1.0 / crb_bound[k] if 0.0 < crb_bound[k] < float("inf") else 0.0)
+        for k in keys if k not in photo_set
+    }
+
     return SolveResult(
         values={k: math.exp(x[k]) for k in keys if k not in photo_set},
         sigmas_ln={k: sig_ln.get(k, float("inf")) for k in keys if k not in photo_set},
@@ -338,4 +355,6 @@ def solve(var_keys: list[str], photo_keys: list[str],
         outliers=outliers,
         iterations=iterations,
         rms=round(rms, 6),
+        fisher_info=fisher_info,
+        crb_bound=crb_bound,
     )

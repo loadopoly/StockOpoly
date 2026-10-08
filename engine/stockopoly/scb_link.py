@@ -134,6 +134,64 @@ def log_learning(kind: str, title: str, detail: dict | str, signal: float = 0.5)
     return False
 
 
+def emit_body_directive(
+    title: str,
+    why_it_matters: str,
+    do_this: str,
+    owner_role: str = "Ops",
+    priority: float = 0.8,
+    severity: str = "act",
+    fingerprint: str | None = None,
+    evidence: dict | None = None,
+    value_per_year: float | None = None,
+) -> bool:
+    """Emit an actionable physical directive into SCB's body_directives table."""
+    db = scb_db_path()
+    if db is None or not db.parent.is_dir():
+        return False
+    fp = fingerprint or f"stockopoly:{title}:{_now()}"
+    created_at = _now()
+    evidence_json = json.dumps(evidence or {}, default=str)
+    try:
+        cn = sqlite3.connect(str(db), timeout=5)
+        try:
+            cn.execute("PRAGMA busy_timeout=5000")
+            cn.execute(
+                """
+                INSERT INTO body_directives (
+                    created_at, fingerprint, source, signal_kind, priority,
+                    severity, title, why_it_matters, do_this, owner_role,
+                    target_entity, evidence_json, status, last_status_at, value_per_year
+                ) VALUES (?, ?, 'stockopoly', 'warehouse_rebalance', ?, ?, ?, ?, ?, ?, 'warehouse::slotting', ?, 'open', ?, ?)
+                ON CONFLICT(fingerprint) DO UPDATE SET
+                    priority=excluded.priority,
+                    severity=excluded.severity,
+                    last_status_at=excluded.last_status_at
+                """,
+                (
+                    created_at,
+                    fp,
+                    priority,
+                    severity,
+                    title,
+                    why_it_matters,
+                    do_this,
+                    owner_role,
+                    evidence_json,
+                    created_at,
+                    value_per_year,
+                ),
+            )
+            cn.commit()
+            return True
+        finally:
+            cn.close()
+    except sqlite3.Error as exc:
+        logger.debug("SCB body_directives write failed: %s", exc)
+        return False
+
+
+
 def flush_outbox(limit: int = 500) -> int:
     """Retry delivery of queued events into SCB's learning_log."""
     cn = _open_own_conn()

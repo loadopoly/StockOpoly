@@ -29,8 +29,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
-from . import API_VERSION, __version__, dims, events, grouping, intake, \
-    scb_link, settings, slotting, supabase_sync
+from . import API_VERSION, __version__, agv, dims, events, grouping, hub_link, intake, \
+    marketplace_signals, scb_link, settings, slotting, supabase_sync, symbiosis
 from . import locations as loc_mod
 from .imports import erp, import_inventory, import_parts, import_po_history, \
     import_usage
@@ -85,7 +85,13 @@ def _status(_req) -> dict:
             "db": str(db_path()), "data_dir": str(data_dir()),
             "counts": counts, "scb": scb_link.status(),
             "sync": supabase_sync.sync_status(),
-            "erp": erp.erp_available(), "app_built": APP_DIST.exists()}
+            "erp": erp.erp_available(), "app_built": APP_DIST.exists(),
+            "hub": hub_link.get_hub_manager().status(),
+            "safety_net": dims.wls_engine_bridge.get_safety_net().status(),
+            "attenuation": dims.wls_engine_bridge.get_attenuation_engine().status(),
+            "symbiosis": symbiosis.get_symbiosis_orchestrator().status(),
+            "agv": agv.get_agv_fleet().status(),
+            "marketplace_signals": marketplace_signals.get_marketplace_signals_engine().status()}
 
 
 def _intake_bundle(req) -> dict:
@@ -298,6 +304,92 @@ def _routes() -> list[tuple[str, re.Pattern, Callable]]:
          lambda r: dims.apply_reference(int(r.params["rid"]),
                                         photo_id=r.json["photo_id"],
                                         pixel_extents=r.json.get("pixel_extents", {}))),
+        # dims safety net & attenuation
+        ("GET", r"/api/dims/safety-net",
+         lambda r: dims.wls_engine_bridge.get_safety_net().status()),
+        ("POST", r"/api/dims/safety-net/flush",
+         lambda r: dims.wls_engine_bridge.get_safety_net().flush(dims.wls_engine_bridge._http_post_json)),
+        ("POST", r"/api/dims/safety-net/toggle",
+         lambda r: setattr(dims.wls_engine_bridge.get_safety_net(), "enabled", bool(r.json.get("enabled", True))) or {"ok": True, "enabled": dims.wls_engine_bridge.get_safety_net().enabled}),
+        ("GET", r"/api/dims/attenuation",
+         lambda r: dims.wls_engine_bridge.get_attenuation_engine().status()),
+        # hubcore connection & metrology sync
+        ("GET", r"/api/hub/status",
+         lambda r: hub_link.get_hub_manager().status()),
+        ("POST", r"/api/hub/sync",
+         lambda r: hub_link.get_hub_manager().parse_hub_spatial_ground_truth()),
+        ("POST", r"/api/hub/ground",
+         lambda r: hub_link.get_hub_manager().trigger_hub_grounding()),
+        # symbiosis & closed-loop manufacturing
+        ("GET", r"/api/symbiosis/status",
+         lambda r: symbiosis.get_symbiosis_orchestrator().status()),
+        ("POST", r"/api/symbiosis/svarog/demand",
+         lambda r: symbiosis.get_symbiosis_orchestrator().svarog_acre_request(
+             r.json.get("recipe", "anchor"),
+             requester=r.json.get("requester", "svarog"),
+             target_location=r.json.get("target_location", "HUB-ASSEMBLY"),
+         ).to_dict()),
+        # agv fleet & transport
+        ("GET", r"/api/agv/status",
+         lambda r: agv.get_agv_fleet().status()),
+        ("GET", r"/api/agv/missions",
+         lambda r: {"missions": agv.get_agv_fleet().list_missions()}),
+        ("POST", r"/api/agv/missions/(?P<mid>[^/]+)/complete",
+         lambda r: agv.get_agv_fleet().complete_mission(r.params["mid"])),
+        ("POST", r"/api/agv/dispatch",
+         lambda r: agv.get_agv_fleet().dispatch_material_mission(
+             r.json["part_number"],
+             float(r.json["qty"]),
+             r.json["from_location"],
+             to_location=r.json.get("to_location", "HUB-ASSEMBLY"),
+             demand_id=r.json.get("demand_id"),
+             agv_id=r.json.get("agv_id", "AGV-01"),
+         ).to_dict()),
+        # marketplace signals (4 streams: Moltbot, GE, Hub Existential, Geograph OCR)
+        ("GET", r"/api/marketplace/signals",
+         lambda r: marketplace_signals.get_marketplace_signals_engine().status()),
+        ("POST", r"/api/marketplace/signals/moltbot",
+         lambda r: marketplace_signals.get_marketplace_signals_engine().record_user_moltbot_purchase(
+             r.json["user_id"],
+             r.json["moltbot_id"],
+             int(r.json["item_id"]),
+             r.json.get("item_name", "Item"),
+             int(r.json["amount"]),
+             r.json["pay_with_asset"],
+             int(r.json["shards_paid"]),
+             world=r.json.get("world", "world1"),
+         ).to_dict()),
+        ("POST", r"/api/marketplace/signals/ge",
+         lambda r: marketplace_signals.get_marketplace_signals_engine().record_ge_maintenance(
+             r.json.get("world", "world1"),
+             int(r.json.get("active_offers", 10)),
+             int(r.json.get("trades_cleared", 5)),
+             float(r.json.get("volume_gp", 500.0)),
+             float(r.json.get("treasury_gp", 10.0)),
+             float(r.json.get("bid_ask_spread", 0.05)),
+             float(r.json.get("npc_participation_ratio", 0.5)),
+         ).to_dict()),
+        ("POST", r"/api/marketplace/signals/hub-requirement",
+         lambda r: marketplace_signals.get_marketplace_signals_engine().record_hub_existential_requirement(
+             r.json["hub_order_id"],
+             r.json.get("recipe_name", "generic"),
+             r.json.get("bom_requirements", []),
+             target_location=r.json.get("target_location", "HUB-ASSEMBLY"),
+             physical_shortfalls=r.json.get("physical_shortfalls", []),
+             po_generated=bool(r.json.get("po_generated", False)),
+             finished_good_asset=r.json.get("finished_good_asset"),
+         ).to_dict()),
+        ("POST", r"/api/marketplace/signals/geograph-ocr",
+         lambda r: marketplace_signals.get_marketplace_signals_engine().record_geograph_ocr_corpus_requirement(
+             r.json.get("requirement_id", "req-geo-01"),
+             r.json.get("target_location", "WAREHOUSE-ZONE-A"),
+             r.json.get("knowledge_type", "pinhole_haversine_relational_anchor"),
+             r.json.get("non_profit_entity", "non_profit_corpus_foundation"),
+             photos_count=int(r.json.get("photos_count", 1)),
+             precision_score=float(r.json.get("precision_score", 0.95)),
+             corpus_nodes_added=int(r.json.get("corpus_nodes_added", 1)),
+             shards_rewarded=int(r.json.get("shards_rewarded", 5)),
+         ).to_dict()),
         # locations
         ("GET", r"/api/locations",
          lambda r: {"locations": loc_mod.list_locations(r.query.get("zone"))}),

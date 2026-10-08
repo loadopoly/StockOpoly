@@ -18,6 +18,7 @@ from typing import Any
 
 from .. import events
 from ..store import open_conn
+from . import wls_engine_bridge
 from .solver import Measurement, solve as _solve
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "create_entity", "ensure_variable", "add_measurement", "delete_measurement",
     "add_reference_object", "apply_reference", "list_reference_objects",
     "solve_all", "list_entities", "entity_detail", "list_measurements",
+    "wls_engine_bridge",
 ]
 
 AXES = ("L", "W", "H", "SPAN")
@@ -268,7 +270,10 @@ def solve_all() -> dict[str, Any]:
             m.sigma_abs = float(r["sigma"]) if r["sigma"] else None
         measurements.append(m)
 
-    result = _solve(list(var_key.values()), list(photo_keys.values()), measurements)
+    ueqgm_pw = wls_engine_bridge.get_ueqgm_phase_weight()
+    shard_alpha = wls_engine_bridge.get_attenuation_engine().status().get("current_alpha_attenuation", 1.0)
+    result = _solve(list(var_key.values()), list(photo_keys.values()), measurements,
+                    ueqgm_phase_weight=ueqgm_pw, shard_attenuation=shard_alpha)
 
     solved_at = _now()
     cn = open_conn()
@@ -324,15 +329,22 @@ def solve_all() -> dict[str, Any]:
         "rms": result.rms,
         "components": components,
         "ungrounded_components": len(ungrounded),
+        "ueqgm_phase_weight": ueqgm_pw,
+        "shard_attenuation": shard_alpha,
         "solved_at": solved_at,
     }
     events.record(
         "stockopoly_dims_solved",
         {k: report[k] for k in ("variables", "measurements", "outliers",
-                                "ungrounded_components", "rms")},
+                                "ungrounded_components", "rms", "ueqgm_phase_weight")},
         title=f"Dims solved: {len(var_rows)} vars, {len(measurements)} meas,"
               f" {len(ungrounded)} ungrounded",
         signal=0.7 if not ungrounded else 0.45)
+
+    # Triad integration: directly tie WLS solver to QUIPU, UEQGM, and GARD engines
+    triad_status = wls_engine_bridge.dispatch_triad_sync(report, result, var_rows)
+    report["triad_sync"] = triad_status
+
     return report
 
 
