@@ -19,7 +19,8 @@ _SOF_MARKERS = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB,
 # tag → (name, ifd) for the tags we extract
 _IFD0_TAGS = {0x010F: "make", 0x0110: "model", 0x0112: "orientation"}
 _EXIF_TAGS = {0x9003: "datetime_original", 0x920A: "focal_mm",
-              0xA405: "focal_35mm", 0xA002: "pixel_x", 0xA003: "pixel_y"}
+              0xA405: "focal_35mm", 0xA002: "pixel_x", 0xA003: "pixel_y",
+              0x9206: "subject_distance"}
 _GPS_TAGS = {0x0001: "lat_ref", 0x0002: "lat_dms", 0x0003: "lng_ref",
              0x0004: "lng_dms", 0x0005: "alt_ref", 0x0006: "alt",
              0x0011: "img_direction"}
@@ -116,6 +117,7 @@ def parse_jpeg(path: str | Path) -> dict[str, Any]:
         "camera_make": None, "camera_model": None,
         "focal_mm": None, "focal_35mm": None, "orientation": None,
         "lat": None, "lng": None, "alt_m": None, "heading_deg": None,
+        "focus_distance_m": None,
     }
     try:
         data = Path(path).read_bytes()
@@ -148,6 +150,11 @@ def parse_jpeg(path: str | Path) -> dict[str, Any]:
         out["focal_mm"] = round(float(raw["focal_mm"]), 3)
     if isinstance(raw.get("focal_35mm"), (int, float)):
         out["focal_35mm"] = float(raw["focal_35mm"])
+    # SubjectDistance (metres): the focus plane, used as a loose scale prior by
+    # stockopoly.metrology. 0 = unknown, 0xFFFFFFFF/1 = infinity → skip both.
+    sd = raw.get("subject_distance")
+    if isinstance(sd, (int, float)) and 0.0 < float(sd) < 1000.0:
+        out["focus_distance_m"] = round(float(sd), 4)
     out["lat"] = _dms_to_deg(raw.get("lat_dms"), raw.get("lat_ref"))
     out["lng"] = _dms_to_deg(raw.get("lng_dms"), raw.get("lng_ref"))
     if isinstance(raw.get("alt"), (int, float)):

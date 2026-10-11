@@ -201,6 +201,48 @@ CREATE TABLE IF NOT EXISTS ss_params(
 
 CREATE TABLE IF NOT EXISTS sync_state(
     key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
+
+-- Photogrammetric connection (holon.metrology/1, see stockopoly/metrology.py).
+-- Standards are personal (a person's calibrated finger/palm/shoe): never mirrored.
+CREATE TABLE IF NOT EXISTS metrology_standards(
+    standard_key TEXT PRIMARY KEY,          -- owner:part
+    owner TEXT, part TEXT, definition TEXT,
+    value_mm REAL, sigma_mm REAL, method TEXT,
+    calibrated_at TEXT, valid_until TEXT,
+    privacy TEXT DEFAULT 'personal', evidence_json TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS metrology_observations(
+    obs_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    photo_key TEXT,                         -- sha256:<hex>, shared across apps
+    photo_id TEXT REFERENCES photos(photo_id),
+    ref_kind TEXT,                          -- 'standard' | 'reference' | 'exif' | 'grid'
+    basis TEXT, owner TEXT,                 -- may name a person: local only
+    source_class TEXT, plane TEXT,
+    pixels REAL, pixel_sigma REAL,
+    ln_mm_per_px REAL, sigma_ln REAL,
+    meas_ids_json TEXT, created_at TEXT);
+-- Measured edge sharpness per photo (dynamic Planck floor; metrology.measure_edge)
+CREATE TABLE IF NOT EXISTS metrology_edges(
+    edge_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    photo_id TEXT REFERENCES photos(photo_id), plane TEXT DEFAULT 'default',
+    box_json TEXT, axis TEXT,
+    edge_sigma_px REAL, cramer_rao_px REAL, quantum_px REAL,
+    contrast REAL, noise REAL, psf_sigma_px REAL, rows INTEGER, limited_by TEXT,
+    created_at TEXT);
+CREATE INDEX IF NOT EXISTS ix_metrology_edges_photo ON metrology_edges(photo_id);
+CREATE INDEX IF NOT EXISTS ix_metrology_obs_photo ON metrology_observations(photo_id);
+CREATE INDEX IF NOT EXISTS ix_metrology_obs_key ON metrology_observations(photo_key);
+-- What may leave this store: no owner, no basis, and no pixel span for a
+-- personal standard (pixels × scale would reveal the body dimension). Mirrors
+-- to the shared Supabase metrology_observations table (DDL owned by the
+-- Loadopoly-OCR migration 20261010000000_photo_metrology.sql).
+DROP VIEW IF EXISTS metrology_obs_public;
+CREATE VIEW metrology_obs_public AS
+    SELECT obs_id AS local_id, photo_key, 'stockopoly' AS source_app, ref_kind,
+           source_class, plane,
+           CASE WHEN ref_kind = 'standard' THEN NULL ELSE pixels END AS pixels,
+           CASE WHEN ref_kind = 'standard' THEN NULL ELSE pixel_sigma END AS pixel_sigma,
+           ln_mm_per_px, sigma_ln, created_at
+    FROM metrology_observations;
 """
 
 # Additive column migrations for databases created before a column existed.

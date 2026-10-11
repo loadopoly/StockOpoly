@@ -215,7 +215,9 @@ def post_quipu_observation(
     confidence = round(max(0.10, min(0.99, 1.0 - (rms / 2.0))), 3)
 
     payload = {
-        "source": "perceptopoly",
+        # Warehouse metrology is operations data, not game play: QUIPU routes
+        # "stockopoly" to its operations region (perceptopoly → game).
+        "source": "stockopoly",
         "text": (
             f"StockOpoly WLS solver grounded {grounded_vars}/{total_vars} variables "
             f"across {len(result.components)} components (RMS={rms:.4f}, "
@@ -226,8 +228,8 @@ def post_quipu_observation(
             "frame": {
                 "scale_mm_per_px": scale_mm_px,
                 "coplanarity": coplanarity,
-                "standoff_m": 1.0,
-                "range_m": 1.0,
+                # no standoff_m/range_m: the solver does not measure them, and a
+                # placeholder 1.0 would be read as a real distance downstream
                 "reference_frame": "warehouse_metrology",
             },
             "relational": {

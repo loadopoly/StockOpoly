@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import API_VERSION, __version__, agv, dims, events, grouping, hub_link, intake, \
-    marketplace_signals, scb_link, settings, slotting, supabase_sync, symbiosis
+    marketplace_signals, metrology, scb_link, settings, slotting, supabase_sync, symbiosis
 from . import locations as loc_mod
 from .imports import erp, import_inventory, import_parts, import_po_history, \
     import_usage
@@ -453,6 +453,34 @@ def _routes() -> list[tuple[str, re.Pattern, Callable]]:
         ("GET", r"/api/scb/status", lambda r: scb_link.status()),
         ("POST", r"/api/scb/flush",
          lambda r: {"flushed": scb_link.flush_outbox()}),
+        # photogrammetric connection (holon.metrology/1)
+        ("GET", r"/api/metrology/standards",
+         lambda r: {"standards": metrology.list_standards(r.query.get("owner") or None)}),
+        ("POST", r"/api/metrology/apply-standard",
+         lambda r: metrology.apply_standard(
+             r.json["standard_key"], r.json["photo_id"], float(r.json["pixels"]),
+             pixel_sigma=float(r.json.get("pixel_sigma", 2.0)),
+             plane=r.json.get("plane", "default"),
+             photographed_owner=r.json.get("photographed_owner"))),
+        ("POST", r"/api/metrology/apply-reference",
+         lambda r: metrology.apply_reference_key(
+             r.json["ref_key"], r.json["photo_id"], float(r.json["pixels"]),
+             pixel_sigma=float(r.json.get("pixel_sigma", 2.0)),
+             plane=r.json.get("plane", "default"))),
+        ("POST", r"/api/metrology/exif",
+         lambda r: metrology.add_exif_prior(r.json["photo_id"],
+                                            force=bool(r.json.get("force"))) or {"ok": False}),
+        ("GET", r"/api/metrology/params", lambda r: metrology.learned_params()),
+        ("POST", r"/api/metrology/measure-edge",
+         lambda r: metrology.measure_edge(r.json["photo_id"], tuple(r.json["box"]),
+                                          axis=r.json.get("axis", "vertical"))),
+        ("POST", r"/api/metrology/grid",
+         lambda r: metrology.apply_grid(r.json["photo_id"],
+                                        [tuple(p) for p in r.json["points"]],
+                                        [tuple(i) for i in r.json["indices"]],
+                                        r.json["ref_key"])),
+        ("GET", r"/api/metrology/photos/(?P<pid>.+)",
+         lambda r: metrology.photo_report(urllib.parse.unquote(r.params["pid"]))),
         # supabase cloud mirror (structured data + photos)
         ("GET", r"/api/sync/status", lambda r: supabase_sync.sync_status()),
         ("POST", r"/api/sync/now",
@@ -537,6 +565,9 @@ class Handler(BaseHTTPRequestHandler):
                 result = fn(Request(self, match.groupdict()))
             except ApiError as exc:
                 self._send_json(exc.status, {"error": str(exc)})
+                return
+            except PermissionError as exc:  # e.g. someone else's personal standard
+                self._send_json(403, {"error": str(exc)})
                 return
             except (KeyError, ValueError) as exc:
                 self._send_json(400, {"error": f"{type(exc).__name__}: {exc}"})
