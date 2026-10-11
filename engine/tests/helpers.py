@@ -39,13 +39,16 @@ def build_exif_tiff(*, model: str = "TestCam", datetime_original: str = "2026:06
                     focal=(52, 10), focal_35: int = 26,
                     lat=(35, 30, 0.0), lat_ref: str = "N",
                     lng=(82, 15, 36.0), lng_ref: str = "W",
-                    heading=(2925, 10)) -> bytes:
-    """Little-endian TIFF with IFD0 → Exif IFD + GPS IFD, valid offsets."""
+                    heading=(2925, 10), subject_distance=None) -> bytes:
+    """Little-endian TIFF with IFD0 → Exif IFD + GPS IFD, valid offsets.
+
+    ``subject_distance`` (rational pair, metres) adds EXIF tag 0x9206.
+    """
     def dms_rationals(dms):
         d, m, s = dms
         return [(int(d), 1), (int(m), 1), (int(round(s * 100)), 100)]
 
-    ifd0_n, exif_n, gps_n = 3, 3, 5
+    ifd0_n, exif_n, gps_n = 3, 3 + (1 if subject_distance else 0), 5
     ifd0_off = 8
     exif_off = ifd0_off + 2 + ifd0_n * 12 + 4
     gps_off = exif_off + 2 + exif_n * 12 + 4
@@ -62,6 +65,8 @@ def build_exif_tiff(*, model: str = "TestCam", datetime_original: str = "2026:06
         _entry_bytes(0x920A, _RATIONAL, [focal], heap, heap_base),
         _entry_bytes(0xA405, _SHORT, focal_35, heap, heap_base),
     ]
+    if subject_distance:
+        exif.append(_entry_bytes(0x9206, _RATIONAL, [subject_distance], heap, heap_base))
     gps = [
         _entry_bytes(0x0001, _ASCII, lat_ref, heap, heap_base),
         _entry_bytes(0x0002, _RATIONAL, dms_rationals(lat), heap, heap_base),

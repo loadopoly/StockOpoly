@@ -12,5 +12,5 @@ Sibling repos: ``../Loadopoly-OCR`` (capture producer) and
 """
 from __future__ import annotations
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 API_VERSION = "stockopoly.api/1"

@@ -58,6 +58,10 @@ _TABLES: dict[str, tuple[str, str, str, str]] = {
     "assignments_future": ("stockopoly_assignments",  "full",        "rowid",         "plan_id,part_number,location_code"),
     "move_tasks":         ("stockopoly_move_tasks",   "full",        "task_id",       "node,task_id"),
     "ss_params":          ("stockopoly_safety_stock", "full",        "part_number",   "part_number"),
+    # Shared photogrammetric table (all apps, keyed by photo content hash). The
+    # local *view* strips owner/basis and personal pixel spans; standards never sync.
+    "metrology_obs_public": ("metrology_observations", "incremental", "created_at",
+                             "source_app,local_id"),
 }
 _PHOTOS_TABLE = "stockopoly_photos"
 _NODE = "stockopoly"

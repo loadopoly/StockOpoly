@@ -36,6 +36,26 @@ def _build_parser() -> argparse.ArgumentParser:
     sync = sub.add_parser("sync", help="push structured data + photos to Supabase")
     sync.add_argument("--tables", nargs="*",
                       help="limit to these local tables (default: all + photos)")
+    met = sub.add_parser("metrology", help="local standards + photo scales (holon.metrology/1)")
+    msub = met.add_subparsers(dest="mcmd", required=True)
+    mi = msub.add_parser("import-standards", help="load standards JSON from Metrology/metrology_cli.py")
+    mi.add_argument("file")
+    ma = msub.add_parser("apply-standard", help="ground a photo with a visible local standard")
+    ma.add_argument("standard_key"); ma.add_argument("photo_id"); ma.add_argument("pixels", type=float)
+    ma.add_argument("--pixel-sigma", type=float, default=2.0)
+    ma.add_argument("--plane", default="default")
+    ma.add_argument("--owner", required=True,
+                    help="whose body/object is in the photo (must match a personal standard's owner)")
+    mx = msub.add_parser("exif", help="log (and optionally solve with) a photo's EXIF prior")
+    mx.add_argument("photo_id"); mx.add_argument("--force", action="store_true")
+    mr = msub.add_parser("report", help="every scale source for a photo")
+    mr.add_argument("photo_id")
+    me = msub.add_parser("export-stats", help="unit-free error stats for Perceptopoly")
+    me.add_argument("file")
+    mg = msub.add_parser("measure-edge", help="measure edge sharpness in a box (needs Pillow)")
+    mg.add_argument("photo_id"); mg.add_argument("box", help="x0,y0,x1,y1")
+    mg.add_argument("--axis", choices=("vertical", "horizontal"), default="vertical")
+    msub.add_parser("params", help="the dynamic calibration parameters in force")
     return p
 
 
@@ -163,6 +183,28 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "sync":
         from . import supabase_sync
         out = supabase_sync.sync_now(args.tables or None)
+    elif args.command == "metrology":
+        from .store import init_schema
+        from . import metrology
+        init_schema()
+        if args.mcmd == "import-standards":
+            out = {"imported": metrology.import_standards(args.file)}
+        elif args.mcmd == "apply-standard":
+            out = metrology.apply_standard(args.standard_key, args.photo_id, args.pixels,
+                                           pixel_sigma=args.pixel_sigma, plane=args.plane,
+                                           photographed_owner=args.owner)
+        elif args.mcmd == "exif":
+            out = metrology.add_exif_prior(args.photo_id, force=args.force) or {
+                "ok": False, "reason": "no focal_35mm/focus distance in EXIF"}
+        elif args.mcmd == "report":
+            out = metrology.photo_report(args.photo_id)
+        elif args.mcmd == "measure-edge":
+            out = metrology.measure_edge(args.photo_id,
+                                         tuple(int(v) for v in args.box.split(",")), axis=args.axis)
+        elif args.mcmd == "params":
+            out = metrology.learned_params()
+        else:
+            out = {"stats": metrology.export_error_stats(args.file)}
     else:
         out = _cmd_status()
     print(json.dumps(out, indent=2))

@@ -23,7 +23,7 @@ def test_quipu_safety_net_direct_success(tmp_path):
         return True, {"ok": True, "mesh": {"vocab": 100}}
 
     payload = {
-        "source": "perceptopoly",
+        "source": "stockopoly",
         "meta": {"relational": {"readout": {"r": 0.5, "control": 0.9}}},
     }
     res = net.execute("http://fake-quipu/observe", payload, mock_dispatcher)

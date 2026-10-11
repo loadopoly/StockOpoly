@@ -28,6 +28,10 @@ DEFAULTS: dict[str, Any] = {
     "default_level_height_in": 60.0,
     "default_unit_volume_in3": 64.0,  # parts with no dims: assume 4x4x4
     "default_lead_time_days": 14.0,
+    # Photogrammetric connection: feed the EXIF focus-distance prior into the
+    # solver (it is always logged in metrology_observations either way). Off by
+    # default: it pulls the photo's single scale toward the focus plane.
+    "metrology_exif_prior": False,
     # Sharing + integration toggles
     "share_supabase": True,           # cleanly no-ops until SUPABASE_URL/key env exist;
                                       # the OFF switch fully disables (user requirement)
