@@ -56,11 +56,12 @@ def _now() -> str:
 def _http_post_json(url: str, payload: dict[str, Any], timeout: float = _HTTP_TIMEOUT) -> tuple[bool, Any]:
     """Helper to send a JSON POST request with timeout and error handling."""
     data = json.dumps(payload, default=str).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-    )
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    key = os.environ.get("GARD_MARKETPLACE_KEY")
+    if key and "/api/v1/marketplace/" in url:
+        # the GARD-Shard Marketplace takes writes only from named writers
+        headers["X-Marketplace-Key"] = key
+    req = urllib.request.Request(url, data=data, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as res:
             raw = res.read().decode("utf-8", "ignore")

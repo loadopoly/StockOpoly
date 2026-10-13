@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 - Marketplace writer key (2026-10-13)
+
+### Changed
+- Posts to the GARD-Shard Marketplace (tokenized WLS lots, GARD envelopes) carry StockOpolys writer key from GARD_MARKETPLACE_KEY in X-Marketplace-Key; the fleets marketplace refuses unkeyed writes.
+
 ## 0.3.0 — Photogrammetric connection (2026-10-11)
 
 ### Added
