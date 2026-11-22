@@ -129,6 +129,17 @@ def run_cascade(batch_id: str) -> dict[str, Any]:
             if proposals is None:
                 proposals = llm.propose(photos, batch, cfg)
             apply(proposals, 3)
+            if proposals and cfg.get("process_studio_propose"):
+                # v-ADMIN: stage the vision outcome on QUIPU's x_ProcessStudio
+                # holon for the operator to authorise (grant_ref, V10-SEC-010).
+                # Staging is advisory — the cascade never blocks on it.
+                try:
+                    from .. import process_studio
+                    process_studio.propose_regroup(batch_id, proposals)
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).debug(
+                        "process_studio staging skipped: %s", exc)
 
         cn.commit()
         groups = list_groups(batch_id, cn=cn)
