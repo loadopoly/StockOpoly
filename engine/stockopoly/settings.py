@@ -53,6 +53,10 @@ DEFAULTS: dict[str, Any] = {
     "scb_vlm_cache": True,            # tier-3: recall a cached Brain VLM grouping
                                       # for the same photo set before spending
                                       # tokens, and write fresh results back
+    "process_studio_propose": False,  # tier-3: stage an x_ProcessStudio ActionProposal
+                                      # on QUIPU from the vision outcome (v-ADMIN:
+                                      # held for the operator's grant_ref, V10-SEC-010;
+                                      # nothing is ever executed from here)
     # Supplier crawl seeds: list of {"supplier": str, "url_pattern": str} where
     # url_pattern may contain {part} / {supplier_part}
     "supplier_sites": [],
