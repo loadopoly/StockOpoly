@@ -29,7 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
-from . import API_VERSION, __version__, agv, dims, events, grouping, hub_link, intake, \
+from . import API_VERSION, __version__, agv, dims, events, grouping, holons, hub_link, intake, \
     marketplace_signals, metrology, scb_link, settings, slotting, supabase_sync, symbiosis
 from . import locations as loc_mod
 from .imports import erp, import_inventory, import_parts, import_po_history, \
@@ -241,6 +241,8 @@ def _routes() -> list[tuple[str, re.Pattern, Callable]]:
     J = lambda fn: fn  # noqa: E731 - readability tag for JSON handlers
     table: list[tuple[str, str, Callable]] = [
         ("GET", r"/api/status", J(_status)),
+        # Holon Desk: holons registered in holons/registry.json
+        ("GET", r"/api/holons", lambda r: holons.list_holons()),
         # intake
         ("POST", r"/intake", _intake_bundle),
         ("POST", r"/", _intake_bundle),

@@ -1,0 +1,1711 @@
+"""Part 2.4 - Hub HTML Single-Page Application Generator.
+
+V10-GEN-001: Emits the self-contained single-file ``Hub_v10.html`` application,
+stamped with deployment branding and the declared fleet, and wired to HubCore
+for everything that is a *status* rather than a *configuration*.
+
+Two rules shape this generator:
+
+* Configuration may be baked in. The declared endpoint registry, the Seven
+  Chains slots, and display identity all come from ``hub/*.json`` at compile
+  time and do not change while the page is open.
+* Status may never be baked in. Health, task state, child hubs, module
+  registration, and advisor answers are fetched from HubCore at runtime. When a
+  fetch fails the page says so and names the failure; it MUST NOT fall back to
+  a plausible-looking success, because an operator cannot distinguish an
+  invented "all healthy" from a measured one (Part 7.2).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from . import advisor, config
+
+#: Static description of each chain slot. Labels and order come from
+#: hub_org.json; this only supplies the prose that explains the slot.
+CHAIN_BLURBS = {
+    "orchestrate": "End-to-end synchronization, multi-tier orchestration, and decision loops.",
+    "plan": "Inventory optimization, demand forecasting, and WIP aging review.",
+    "order": "Requisition routing, purchase order intake, and lead-time models.",
+    "source": "Vendor consolidation, supplier performance, and contract terms.",
+    "transform": "Work order execution, bill-of-materials traversal, and shop-floor metrics.",
+    "fulfill": "Shipment dispatch, freight tracking, and on-time delivery scoring.",
+    "return": "Reverse logistics, asset salvage, and warranty claim disposition.",
+}
+
+
+def _declared_fleet(workspace: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The endpoint registry as configured, with no health claim attached."""
+    fleet = []
+    for name, descriptor in (workspace.get("endpoints") or {}).items():
+        fleet.append(
+            {
+                "name": name,
+                "id": descriptor.get("id", name),
+                "role": descriptor.get("role", ""),
+                "axis": descriptor.get("axis", descriptor.get("realm", "")),
+                "bind": descriptor.get("bind", "127.0.0.1"),
+                "port": descriptor.get("port"),
+                "required": bool(descriptor.get("required", False)),
+            }
+        )
+    return sorted(fleet, key=lambda e: (not e["required"], e["id"]))
+
+
+def generate_hub_html(hub_dir: Optional[Path] = None) -> str:
+    """Generate the complete, self-contained Hub_v10.html SPA."""
+    documents = config.load_all(hub_dir)
+    org = documents["org"]
+    workspace = documents["workspace"]
+
+    # A placeholder that reaches a screen is a defect, not a branding strategy.
+    config.assert_identity_resolved(org, "org")
+
+    org_name = org.get("orgName") or org["orgId"]
+    hub_name = org.get("hubName") or "HubCore"
+    ask_persona = org.get("askPersona") or "Ask Advisor"
+    accent = org.get("theme", {}).get("accent", "#006B5E")
+
+    broker_port = (workspace.get("endpoints", {}).get("tokenBroker", {}) or {}).get("port", 8000)
+    chains = sorted(org.get("chains", []), key=lambda c: c.get("order", 0))
+    for chain in chains:
+        chain["blurb"] = CHAIN_BLURBS.get(chain.get("chainId", ""), "")
+
+    bootstrap = {
+        "hubName": hub_name,
+        "orgName": org_name,
+        "orgId": org["orgId"],
+        "askPersona": ask_persona,
+        "virtualPersona": org.get("virtualPersona") or ask_persona,
+        "fallbackApiBase": "http://127.0.0.1:" + str(broker_port),
+        "declaredFleet": _declared_fleet(workspace),
+        "chains": chains,
+        "gradeMatrix": advisor.grade_matrix_document(),
+        "siteId": workspace.get("siteId", "site-default"),
+        "deviceId": workspace.get("deviceId", "dev-default"),
+    }
+
+    return (
+        _TEMPLATE.replace("__ACCENT__", accent)
+        .replace("__HUB_NAME__", _escape(hub_name))
+        .replace("__ORG_NAME__", _escape(org_name))
+        .replace("__ASK_PERSONA__", _escape(ask_persona))
+        .replace("__BOOTSTRAP__", json.dumps(bootstrap))
+    )
+
+
+def _escape(value: str) -> str:
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def compile_and_stage_hub(hub_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Compile Hub_v10.html and write to UAT and PROD with SHA-256 sidecars."""
+    documents = config.load_all(hub_dir)
+    workspace = documents["workspace"]
+    lib_root = config.library_root(workspace)
+
+    prod_dir = lib_root / workspace.get("library", {}).get("prod", "PROD")
+    uat_dir = lib_root / workspace.get("library", {}).get("uat", "UAT")
+    prod_dir.mkdir(parents=True, exist_ok=True)
+    uat_dir.mkdir(parents=True, exist_ok=True)
+
+    html_content = generate_hub_html(hub_dir)
+    digest = hashlib.sha256(html_content.encode("utf-8")).hexdigest()
+
+    for directory in (prod_dir, uat_dir):
+        (directory / "Hub_v10.html").write_text(html_content, encoding="utf-8")
+        (directory / "Hub_v10.html.sha256").write_text(
+            digest + " *Hub_v10.html\n", encoding="utf-8"
+        )
+
+    return {
+        "status": "compiled",
+        "digest": digest,
+        "prodPath": str(prod_dir / "Hub_v10.html"),
+        "uatPath": str(uat_dir / "Hub_v10.html"),
+    }
+
+
+_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>__HUB_NAME__ &mdash; __ORG_NAME__</title>
+  <style>
+    :root {
+      --primary: __ACCENT__;
+      --primary-hover: #005247;
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface-border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font); background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+
+    aside { width: 260px; flex: 0 0 260px; background: var(--surface); border-right: 1px solid var(--surface-border); display: flex; flex-direction: column; }
+    .brand { padding: 1.25rem; border-bottom: 1px solid var(--surface-border); display: flex; align-items: center; gap: 0.75rem; }
+    .brand-icon { width: 32px; height: 32px; flex: 0 0 32px; background: var(--primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+    .brand-title { font-weight: 700; font-size: 1.05rem; }
+    .brand-sub { font-size: 0.75rem; color: var(--text-muted); }
+
+    nav { flex: 1; overflow-y: auto; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+    .nav-label { font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); padding: 0.5rem 0.5rem 0.25rem; font-weight: 600; }
+    .nav-item { display: flex; align-items: center; gap: 0.6rem; width: 100%; padding: 0.6rem 0.75rem; border-radius: 6px; background: none; border: none; border-left: 3px solid transparent; color: var(--text-muted); cursor: pointer; transition: background 0.15s, color 0.15s; font: inherit; font-size: 0.9rem; text-align: left; }
+    .nav-item:focus-visible, .btn:focus-visible, .field:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .nav-item:hover, .nav-item.active { background: rgba(148, 163, 184, 0.12); color: var(--text); }
+    .nav-item.active { border-left-color: var(--primary); }
+
+    main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+    header { min-height: 60px; border-bottom: 1px solid var(--surface-border); background: var(--surface); display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0 1.5rem; }
+    .status-badge { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; padding: 0.3rem 0.75rem; border-radius: 9999px; border: 1px solid transparent; white-space: nowrap; }
+    .status-badge.ok { background: rgba(16, 185, 129, 0.15); color: var(--success); border-color: rgba(16, 185, 129, 0.3); }
+    .status-badge.warn { background: rgba(245, 158, 11, 0.15); color: var(--warning); border-color: rgba(245, 158, 11, 0.3); }
+    .status-badge.bad { background: rgba(239, 68, 68, 0.15); color: var(--danger); border-color: rgba(239, 68, 68, 0.3); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .status-badge.ok .dot { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+    .content-viewport { flex: 1; overflow-y: auto; padding: 1.5rem; }
+    .view-panel { display: none; }
+    .view-panel.active { display: block; }
+    .view-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    h2 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+    .sub { color: var(--text-muted); font-size: 0.9rem; }
+
+    .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .card { background: var(--surface); border: 1px solid var(--surface-border); border-radius: 8px; padding: 1.25rem; }
+    .card + .card { margin-top: 1rem; }
+    .card-title { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+    .card-metric { font-size: 1.5rem; font-weight: 700; }
+    .card-foot { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+    .chains-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+    .chain-header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .badge { font-size: 0.72rem; background: rgba(148, 163, 184, 0.18); color: var(--text-muted); padding: 0.2rem 0.5rem; border-radius: 4px; white-space: nowrap; }
+
+    .chat-container { display: flex; flex-direction: column; height: min(600px, 70vh); background: var(--surface); border: 1px solid var(--surface-border); border-radius: 8px; overflow: hidden; }
+    .chat-messages { flex: 1; padding: 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem; }
+    .message { max-width: 80%; padding: 0.75rem 1rem; border-radius: 8px; line-height: 1.45; font-size: 0.9rem; }
+    .message.user { align-self: flex-end; background: var(--primary); color: #fff; }
+    .message.bot { align-self: flex-start; background: rgba(255,255,255,0.06); border: 1px solid var(--surface-border); }
+    .message.error { align-self: flex-start; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); color: #fecaca; }
+    .citations-box { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--surface-border); font-size: 0.75rem; color: var(--text-muted); }
+    .chat-input-bar { display: flex; padding: 0.75rem; background: rgba(0,0,0,0.2); border-top: 1px solid var(--surface-border); gap: 0.5rem; }
+    .chat-input, .field { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--surface-border); border-radius: 6px; padding: 0.6rem 0.75rem; color: var(--text); outline: none; font: inherit; font-size: 0.9rem; }
+    .chat-input:focus, .field:focus { border-color: var(--primary); }
+
+    .btn { background: var(--primary); color: #fff; border: none; border-radius: 6px; padding: 0.6rem 1.2rem; cursor: pointer; font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
+    .btn:hover { background: var(--primary-hover); }
+    .btn:disabled { opacity: 0.5; cursor: progress; }
+    .btn.small { padding: 0.3rem 0.7rem; font-size: 0.78rem; }
+    .btn.ghost { background: transparent; border: 1px solid var(--surface-border); color: var(--text-muted); }
+    .btn.ghost:hover { background: rgba(148,163,184,0.12); color: var(--text); }
+    .btn.danger { background: var(--danger); }
+
+    .table-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+    th, td { padding: 0.7rem; text-align: left; border-bottom: 1px solid var(--surface-border); font-size: 0.85rem; white-space: nowrap; }
+    th { color: var(--text-muted); font-weight: 600; }
+    td.wrap { white-space: normal; }
+
+    .ok { color: var(--success); }
+    .warn { color: var(--warning); }
+    .bad { color: var(--danger); }
+    .muted { color: var(--text-muted); }
+
+    .banner { border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 1rem; font-size: 0.87rem; line-height: 1.45; }
+    .banner.error { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.45); color: #fecaca; }
+    .banner.info { background: rgba(148, 163, 184, 0.1); border: 1px solid var(--surface-border); color: var(--text-muted); }
+    .empty { padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.9rem; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
+    .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+
+  <aside>
+    <div class="brand">
+      <div class="brand-icon">H</div>
+      <div>
+        <div class="brand-title">__HUB_NAME__</div>
+        <div class="brand-sub">__ORG_NAME__</div>
+      </div>
+    </div>
+    <nav>
+      <div class="nav-label">Core Operations</div>
+      <button type="button" class="nav-item active" data-view="dashboard">&#128202; Dashboard</button>
+      <button type="button" class="nav-item" data-view="chains">&#9939; Seven Chains</button>
+      <button type="button" class="nav-item" data-view="marketplace">&#128722; Shared Marketplace</button>
+      <button type="button" class="nav-item" data-view="advisor">&#128161; __ASK_PERSONA__</button>
+
+      <div class="nav-label">Governance &amp; Fleet</div>
+      <button type="button" class="nav-item" data-view="fleet">&#128752; Fleet Health</button>
+      <button type="button" class="nav-item" data-view="mesh">&#127760; Cognitive Mesh</button>
+      <button type="button" class="nav-item" data-view="floor">&#127963; Hub Floor Tasks</button>
+      <button type="button" class="nav-item" data-view="vadmin">&#129302; v-ADMIN Queue</button>
+      <button type="button" class="nav-item" data-view="tunnels">&#127760; Child Hubs &amp; Tunnels</button>
+      <button type="button" class="nav-item" data-view="modules">&#128230; Module SDK</button>
+      <button type="button" class="nav-item" data-view="node">&#9881; Node Configuration</button>
+    </nav>
+  </aside>
+
+  <main>
+    <header>
+      <div id="header-title" style="font-weight: 600; font-size: 1.1rem;">Operational Dashboard</div>
+      <div class="row">
+        <span class="muted" style="font-size: 0.78rem;" id="last-sync"></span>
+        <span class="badge" title="The role this page currently holds">session: <span id="session-role">no session</span></span>
+        <div class="status-badge warn" id="conn-badge"><span class="dot"></span><span id="conn-text">Connecting to HubCore&hellip;</span></div>
+      </div>
+    </header>
+
+    <div class="content-viewport">
+      <div id="global-error"></div>
+
+      <!-- DASHBOARD -->
+      <div id="view-dashboard" class="view-panel active">
+        <div class="grid-4" id="dash-tiles"></div>
+        <div class="card">
+          <div class="view-head" style="margin-bottom: 0.5rem;">
+            <div>
+              <h2 style="font-size: 1.05rem;">Declared fleet and measured status</h2>
+              <p class="sub">Ports and roles are configuration. The status column is measured by HubCore on each probe.</p>
+            </div>
+            <button class="btn small ghost" onclick="refreshAll()">Re-probe</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Endpoint</th><th>Role</th><th>Axis</th><th>Bind</th><th>Required</th><th>Status</th><th>Latency</th></tr></thead>
+              <tbody id="dash-fleet-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- SEVEN CHAINS -->
+      <div id="view-chains" class="view-panel">
+        <div class="view-head">
+          <div>
+            <h2>Seven Chains</h2>
+            <p class="sub">Configured chain slots, each showing the modules HubCore has registered against it.</p>
+          </div>
+        </div>
+        <div class="chains-grid" id="chains-grid"></div>
+      </div>
+
+      <!-- ADVISOR -->
+      <div id="view-advisor" class="view-panel">
+        <div class="view-head">
+          <div>
+            <h2 id="advisor-heading">__ASK_PERSONA__</h2>
+            <p class="sub">Citation-backed answers from the HubCore advisor pipeline. Answers are generated by HubCore, never by this page.</p>
+          </div>
+        </div>
+        <div class="chat-container">
+          <div class="chat-messages" id="chat-stream">
+            <div class="message bot">Ask about node topology, fleet posture, or the Seven Chains.</div>
+          </div>
+          <div class="chat-input-bar">
+            <input type="text" id="advisor-input" class="chat-input" placeholder="Ask a question&hellip;" autocomplete="off">
+            <button class="btn" id="advisor-send">Send</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="view-head" style="margin-bottom: 0.5rem;">
+            <div>
+              <h2 style="font-size: 1.05rem;">Advisor ledger</h2>
+              <p class="sub">Every request, its grade, and the human gate it is waiting on.</p>
+            </div>
+            <button class="btn ghost small" onclick="loadAdvisorLedger()">Refresh</button>
+          </div>
+          <div id="advisor-ledger"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Grade matrix (Part 9.2)</div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Grade</th><th>Meaning</th><th>Route</th><th>Human gate</th><th>Expert weight</th><th>May auto-close</th></tr></thead>
+              <tbody id="grade-matrix-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- v-ADMIN -->
+      <div id="view-vadmin" class="view-panel">
+        <div class="view-head">
+          <div>
+            <h2>v-ADMIN queue</h2>
+            <p class="sub" id="vadmin-disclosure"></p>
+          </div>
+          <div class="row">
+            <button class="btn ghost small" onclick="loadVadmin()">Refresh</button>
+            <button class="btn danger small" id="vadmin-kill-btn">Engage kill switch</button>
+          </div>
+        </div>
+        <div id="vadmin-body"></div>
+      </div>
+
+      <!-- FLEET -->
+      <div id="view-fleet" class="view-panel">
+        <div class="view-head">
+          <div>
+            <h2>Fleet posture and V10-END-001 verification</h2>
+            <p class="sub">Live readiness probe from wherever HubCore runs, plus the loopback binding audit.</p>
+          </div>
+          <button class="btn" id="fleet-probe-btn">Probe fleet now</button>
+        </div>
+        <div id="fleet-body"></div>
+      </div>
+
+      <!-- COGNITIVE MESH -->
+      <div id="view-mesh" class="view-panel">
+        <div class="view-head">
+          <div>
+            <h2>Cognitive mesh and the annealing seam</h2>
+            <p class="sub">The sense-axes this node actually has, and what the air-lock has forwarded into the annealing loop. An axis nobody implemented is shown as reserved, never as live.</p>
+          </div>
+          <div class="row">
+            <button class="btn ghost small" onclick="loadMesh()">Refresh</button>
+            <button class="btn small" id="anneal-drain-btn">Drain intake now</button>
+          </div>
+        </div>
+        <div id="mesh-body"></div>
+      </div>
+
+      <!-- HUB FLOOR -->
+      <div id="view-floor" class="view-panel">
+        <div class="view-head">
+          <div>
+            <h2>Hub Floor governed task ledger</h2>
+            <p class="sub">External results are held until a reviewer accepts them. Acceptance means accepted for internal validation, not published.</p>
+          </div>
+          <div class="row">
+            <select class="field" id="floor-filter" style="flex: 0 0 auto;">
+              <option value="">All states</option>
+              <option value="CREATED">Created</option>
+              <option value="IN_PROGRESS">In progress</option>
+              <option value="HELD">Held</option>
+              <option value="ACCEPTED">Accepted</option>
+              <option value="REJECTED">Rejected</option>
+            </select>
+            <button class="btn ghost small" onclick="loadTasks()">Refresh</button>
+            <button class="btn ghost small" id="quipu-anneal-btn" onclick="triggerQuipuAnneal()">⚡ Anneal QUIPU</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Create a task</div>
+          <div class="row">
+            <input class="field" id="task-kind" placeholder="kind (e.g. etl_sync)" style="flex: 1 1 200px;">
+            <input class="field" id="task-repo" placeholder="repoId" value="main" style="flex: 0 1 160px;">
+            <button class="btn" id="task-create-btn">Create task</button>
+          </div>
+        </div>
+        <div class="card">
+          <div id="floor-body"></div>
+        </div>
+      </div>
+
+      <!-- CHILD HUBS -->
+      <div id="view-tunnels" class="view-panel">
+        <div class="view-head">
+          <div>
+            <h2>Attached child hubs and tunnel mesh</h2>
+            <p class="sub">Child hubs that have registered with this node. Nothing is listed here until a hub actually calls in.</p>
+          </div>
+          <button class="btn ghost small" onclick="loadChildHubs()">Refresh mesh</button>
+        </div>
+        <div id="tunnels-body"></div>
+        <div class="card" id="session-panel" style="display: none;">
+          <div class="view-head" style="margin-bottom: 0.5rem;">
+            <div><strong id="session-title">Bounded session</strong></div>
+            <button class="btn danger small" onclick="document.getElementById('session-panel').style.display='none'">Close</button>
+          </div>
+          <p class="sub" style="margin-bottom: 0.5rem;">HubCore issued this session descriptor. This page holds no shell and executes nothing on the child hub.</p>
+          <pre class="card" style="overflow-x: auto; font-size: 0.8rem;"><code id="session-json"></code></pre>
+        </div>
+      </div>
+
+      <!-- MODULES -->
+      <div id="view-modules" class="view-panel">
+        <div class="view-head">
+          <div>
+            <h2>Module registry and ToolForge</h2>
+            <p class="sub">Sandboxed modules currently registered with HubCore.</p>
+          </div>
+          <button class="btn ghost small" onclick="loadModules()">Refresh</button>
+        </div>
+        <div id="modules-body"></div>
+      </div>
+
+      <!-- SHARED & ORG HUB MARKETPLACE -->
+      <div id="view-marketplace" class="view-panel">
+        <div class="row" style="margin-bottom: 1rem; border-bottom: 1px solid var(--surface-border); padding-bottom: 0.75rem;">
+          <button id="mkt-scope-shared-btn" class="btn small" onclick="switchMarketplaceScope('shared')">&#127760; Public Shared Marketplace (Loadopoly / Bakugo)</button>
+          <button id="mkt-scope-hub-btn" class="btn small ghost" onclick="switchMarketplaceScope('hub')">&#127970; Org Hub Marketplace (Supply Chain &amp; Floor)</button>
+        </div>
+
+        <div class="grid-4" id="marketplace-tiles"></div>
+
+        <div class="card" style="margin-top: 1rem;">
+          <div class="view-head">
+            <div>
+              <h2 id="mkt-view-heading" style="font-size: 1.05rem;">Web3 GARD-Shard Multi-Axis Marketplace (HolonHubLive Unified Physical Marketplace · Virtual Warehouses Prohibited)</h2>
+              <p id="mkt-view-sub" class="sub">Split-view catalog spanning Loadopoly-OCR (Vision) and Bakugo CardCenter (Touch), governed by the GARD-Shard protocol.</p>
+            </div>
+            <div class="row">
+              <div id="mkt-shared-filters" class="row">
+                <select id="mkt-axis-filter" class="field" style="width: auto;" onchange="loadMarketplace()">
+                  <option value="all">Unified (All Axes)</option>
+                  <option value="vision">Vision Axis (Loadopoly-OCR)</option>
+                  <option value="touch">Touch Axis (Bakugo CardCenter)</option>
+                </select>
+              </div>
+              <div id="mkt-hub-filters" class="row" style="display: none;">
+                <select id="mkt-domain-filter" class="field" style="width: auto;" onchange="loadMarketplace()">
+                  <option value="">All Supply Chain Domains</option>
+                  <option value="forecasting">Forecasting Models</option>
+                  <option value="inventory">Warehouse Inventory Lots</option>
+                  <option value="procurement">Procurement &amp; SLAs</option>
+                  <option value="sales">Sales &amp; Orders</option>
+                  <option value="ownership">Asset Title &amp; Ownership</option>
+                  <option value="logistics">Logistics &amp; Freight</option>
+                </select>
+              </div>
+              <button class="btn small ghost" onclick="loadMarketplace()">Refresh</button>
+            </div>
+          </div>
+          <div id="marketplace-catalog-body"></div>
+        </div>
+
+        <div class="grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+          <div class="card">
+            <h3 id="mkt-action-title" style="font-size: 0.95rem; margin-bottom: 0.5rem;">Quick Shard Acquisition / Trade</h3>
+            <div id="mkt-trade-form" style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <input type="text" id="mkt-trade-asset" class="field" placeholder="Asset ID (e.g. doc-genesis-ocr-001)" />
+              <div class="row">
+                <input type="number" id="mkt-trade-shards" class="field" placeholder="Shard Count" min="1" value="1" />
+                <input type="text" id="mkt-trade-buyer" class="field" placeholder="Buyer ID / Wallet" value="0x71C7656EC7ab88b098defB751B7401B5f6d89A21" />
+              </div>
+              <button class="btn small" onclick="executeMarketTrade()">Execute Shard Trade</button>
+            </div>
+            <div id="mkt-xfer-form" style="display: none; flex-direction: column; gap: 0.5rem;">
+              <input type="text" id="mkt-xfer-asset" class="field" placeholder="Supply Chain Asset ID (e.g. forecast-freight-q4-2026)" />
+              <div class="row">
+                <input type="number" id="mkt-xfer-shards" class="field" placeholder="Shard Count" min="1" value="50" />
+                <input type="text" id="mkt-xfer-to" class="field" placeholder="Recipient Dept / Hub Floor Actor" value="hub-floor-warehouse-mgr" />
+              </div>
+              <input type="text" id="mkt-xfer-reason" class="field" placeholder="Transfer Reason / Allocation Purpose" value="Q4 Buffer Allocation" />
+              <button class="btn small" onclick="executeInternalShardTransfer()">Execute Internal Floor Transfer</button>
+            </div>
+            <div id="mkt-trade-res" style="margin-top: 0.5rem; font-size: 0.8rem;"></div>
+          </div>
+
+          <div class="card">
+            <h3 style="font-size: 0.95rem; margin-bottom: 0.5rem;">Hub Floor Sync &amp; GARD-Shard Cryptographic Seal</h3>
+            <p class="sub" style="font-size: 0.8rem; margin-bottom: 0.5rem;">Verify SiCi_SQRT(-1) AEAD tag &amp; synchronize loose-connection Hub Floor instances.</p>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <div class="row">
+                <input type="text" id="mkt-verify-asset" class="field" placeholder="Asset ID" value="doc-genesis-ocr-001" />
+                <button class="btn small ghost" onclick="runGardShardSealTest()">Test GARD Seal</button>
+              </div>
+              <button class="btn small" style="background:#0f766e;" onclick="triggerFloorNodeSync()">Sync Hub Floor Manifest</button>
+            </div>
+            <div id="mkt-verify-res" style="margin-top: 0.5rem; font-size: 0.8rem;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- NODE CONFIG -->
+      <div id="view-node" class="view-panel">
+        <div class="view-head">
+          <div>
+            <h2>Node configuration</h2>
+            <p class="sub">Identity, hardware tier, air-lock posture, and federation consent as HubCore reports them.</p>
+          </div>
+        </div>
+        <div id="node-body"></div>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+  (function () {
+    "use strict";
+
+    var BOOT = __BOOTSTRAP__;
+
+    // Served from HubCore itself, the API is same-origin. Opened as a file
+    // (Electron shell, or a staged copy), fall back to the configured broker.
+    var API = (location.protocol === "http:" || location.protocol === "https:")
+      ? location.origin
+      : BOOT.fallbackApiBase;
+
+    var state = { status: null, view: "dashboard", token: null, role: null };
+
+    // ---- session -----------------------------------------------------
+    //
+    // Every governed route needs a token (V10-SEC-001). The page mints a
+    // Requester on load, which carries a subject, a tenancy, and an expiry but
+    // no authority. Reviewer and Admin actions need the operator credential the
+    // node was started with, which the operator supplies when they take one --
+    // the page never holds standing authority it did not ask for.
+
+    async function mintToken(role, operatorSecret) {
+      var headers = { "Content-Type": "application/json" };
+      if (operatorSecret) { headers["X-HubCore-Operator"] = operatorSecret; }
+      var response = await fetch(API + "/api/v1/session", {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify({
+          orgId: BOOT.orgId,
+          siteId: BOOT.siteId,
+          deviceId: BOOT.deviceId,
+          repoId: "hub-ui",
+          userId: BOOT.uiSubject || "hub-ui",
+          subject: BOOT.uiSubject || "hub-ui",
+          role: role || "Requester"
+        })
+      });
+      var body = null;
+      try { body = await response.json(); } catch (e) { body = null; }
+      if (!response.ok) {
+        var failure = new Error((body && body.error) || ("HTTP " + response.status));
+        failure.detail = (body && body.detail) || failure.message;
+        throw failure;
+      }
+      return body.token;
+    }
+
+    async function ensureToken() {
+      if (state.token) { return state.token; }
+      state.token = await mintToken("Requester");
+      state.role = "Requester";
+      // The badge reports the session the page actually holds. Leaving it at
+      // "no session" while a token is in hand would be the same defect as a
+      // health panel that reports a state it never measured.
+      updateSessionBadge();
+      return state.token;
+    }
+
+    async function elevate(role) {
+      // Asking for the credential per elevation, rather than holding one, keeps
+      // an unattended browser from carrying r-ADMIN authority indefinitely.
+      if (state.role === role || state.role === "Admin") { return state.token; }
+      var secret = prompt(
+        role + " actions require the operator credential this node was started "
+        + "with (HUBCORE_OPERATOR_SECRET). Enter it:", "");
+      if (!secret) { throw new Error("elevation cancelled"); }
+      state.token = await mintToken(role, secret);
+      state.role = role;
+      updateSessionBadge();
+      return state.token;
+    }
+
+    function updateSessionBadge() {
+      var badge = el("session-role");
+      if (badge) { badge.textContent = state.role || "no session"; }
+    }
+
+    // ---- helpers -----------------------------------------------------
+
+    function el(id) { return document.getElementById(id); }
+
+    function esc(value) {
+      return String(value === null || value === undefined ? "" : value)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    // Every failure surfaces as itself. A guessed-at success would be
+    // indistinguishable from a measured one, which is the whole reason an
+    // operator opens this page.
+    function describeError(err) {
+      if (err && err.detail) { return err.detail; }
+      if (err && err.message === "Failed to fetch") {
+        return "cannot reach HubCore at " + API + ". Start it with "
+             + "'python -m services.hubcore.server', then reload.";
+      }
+      return (err && err.message) ? err.message : String(err);
+    }
+
+    function errorBanner(context, err) {
+      return '<div class="banner error"><strong>' + esc(context) + " failed.</strong> "
+           + esc(describeError(err)) + "</div>";
+    }
+
+    async function api(path, options) {
+      var settings = options || {};
+      var token = await ensureToken();
+      settings.headers = Object.assign({}, settings.headers, {
+        "Authorization": "Bearer " + token
+      });
+      var response;
+      try {
+        response = await fetch(API + path, settings);
+      } catch (networkError) {
+        throw networkError;
+      }
+      var body = null;
+      try { body = await response.json(); } catch (parseError) { body = null; }
+      if (!response.ok) {
+        var failure = new Error((body && body.error) || ("HTTP " + response.status));
+        failure.detail = (body && body.detail)
+          ? ((body.error || "error") + ": " + body.detail)
+          : ("HubCore returned HTTP " + response.status + " for " + path);
+        if (response.status === 401) {
+          // The token expired or was never minted. Drop it so the next call
+          // mints a fresh one rather than looping on a dead credential.
+          state.token = null;
+          state.role = null;
+          updateSessionBadge();
+        }
+        failure.status = response.status;
+        throw failure;
+      }
+      return body;
+    }
+
+    function postJson(path, payload) {
+      return api(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    function setConnection(kind, text) {
+      var badge = el("conn-badge");
+      badge.className = "status-badge " + kind;
+      el("conn-text").textContent = text;
+    }
+
+    function healthMark(healthy, required) {
+      if (healthy) { return '<span class="ok">&#9679; healthy</span>'; }
+      return '<span class="' + (required ? "bad" : "muted") + '">&#9679; '
+           + (required ? "unreachable" : "not running") + "</span>";
+    }
+
+    // ---- views -------------------------------------------------------
+
+    var TITLES = {
+      dashboard: "Operational Dashboard",
+      chains: "Seven Chains",
+      marketplace: "Web3 GARD-Shard Shared Marketplace",
+      advisor: BOOT.askPersona,
+      fleet: "Fleet Posture",
+      mesh: "Cognitive Mesh",
+      floor: "Hub Floor Governance",
+      vadmin: "v-ADMIN Queue",
+      tunnels: "Child Hubs & Tunnels",
+      modules: "Module SDK Registry",
+      node: "Node Configuration"
+    };
+
+    var LOADERS = {
+      dashboard: loadStatus,
+      chains: loadChains,
+      marketplace: loadMarketplace,
+      advisor: loadAdvisorLedger,
+      fleet: loadFleet,
+      mesh: loadMesh,
+      floor: loadTasks,
+      vadmin: loadVadmin,
+      tunnels: loadChildHubs,
+      modules: loadModules,
+      node: loadNode
+    };
+
+    function switchView(name, trigger) {
+      state.view = name;
+      var panels = document.querySelectorAll(".view-panel");
+      for (var i = 0; i < panels.length; i++) { panels[i].classList.remove("active"); }
+      var items = document.querySelectorAll(".nav-item");
+      for (var j = 0; j < items.length; j++) { items[j].classList.remove("active"); }
+      var panel = el("view-" + name);
+      if (panel) { panel.classList.add("active"); }
+      if (trigger) { trigger.classList.add("active"); }
+      el("header-title").textContent = TITLES[name] || "HubCore";
+      if (LOADERS[name]) { LOADERS[name](); }
+    }
+
+    async function loadStatus() {
+      try {
+        var status = await api("/api/v1/status");
+        state.status = status;
+        renderDashboard(status);
+        setConnection(status.fleet.compliant ? "ok" : "warn",
+          status.fleet.requiredHealthy + "/" + status.fleet.requiredTotal + " required endpoints healthy");
+        el("last-sync").textContent = "synced " + new Date().toLocaleTimeString();
+        el("global-error").innerHTML = "";
+      } catch (err) {
+        state.status = null;
+        setConnection("bad", "HubCore unreachable");
+        el("last-sync").textContent = "";
+        el("global-error").innerHTML = errorBanner("Loading node status", err);
+        el("dash-tiles").innerHTML = "";
+        el("dash-fleet-tbody").innerHTML =
+          '<tr><td colspan="7" class="empty">No measured status available.</td></tr>';
+      }
+    }
+
+    function tile(title, value, foot, tone) {
+      return '<div class="card"><div class="card-title">' + esc(title) + "</div>"
+           + '<div class="card-metric ' + (tone || "") + '">' + esc(value) + "</div>"
+           + '<div class="card-foot">' + esc(foot) + "</div></div>";
+    }
+
+    function renderDashboard(status) {
+      var hw = status.hardware;
+      var fleet = status.fleet;
+      var gpu = (hw.gpus && hw.gpus.length) ? hw.gpus[0].name : "CPU only";
+      var tasksTotal = status.tasks.total;
+      var held = status.tasks.byState.HELD || 0;
+
+      el("dash-tiles").innerHTML = [
+        tile("HAL conductor tier", "Tier " + hw.tier + " (" + hw.tierName + ")",
+             gpu + " • " + (hw.totalVramMb || 0) + " MB VRAM • budget "
+             + hw.heavyModelBudgetMb + " MB"),
+        tile("Required fleet posture",
+             fleet.requiredHealthy + "/" + fleet.requiredTotal + " healthy",
+             fleet.compliant ? "V10-END-001 compliant" : "attention required",
+             fleet.compliant ? "ok" : "bad"),
+        tile("Governed tasks", String(tasksTotal),
+             held + " held for review", held ? "warn" : ""),
+        tile("Ingress membrane",
+             status.airlock.zeroExternalCompute ? "Data-only" : "Open",
+             "queue depth " + status.airlock.queueDepth,
+             status.airlock.zeroExternalCompute ? "ok" : "bad")
+      ].join("");
+
+      var byId = {};
+      for (var i = 0; i < fleet.endpoints.length; i++) { byId[fleet.endpoints[i].id] = fleet.endpoints[i]; }
+
+      el("dash-fleet-tbody").innerHTML = BOOT.declaredFleet.map(function (d) {
+        var live = byId[d.id];
+        var status_cell = live
+          ? healthMark(live.healthy, d.required)
+          : '<span class="muted">not probed</span>';
+        var latency = (live && live.latency_ms !== null && live.latency_ms !== undefined)
+          ? live.latency_ms + " ms" : "—";
+        return "<tr><td><strong>" + esc(d.id) + "</strong></td>"
+             + '<td class="wrap">' + esc(d.role) + "</td>"
+             + "<td>" + esc(d.axis) + "</td>"
+             + "<td><code>" + esc(d.bind + ":" + d.port) + "</code></td>"
+             + "<td>" + (d.required ? "yes" : "no") + "</td>"
+             + "<td>" + status_cell + "</td>"
+             + "<td>" + esc(latency) + "</td></tr>";
+      }).join("");
+    }
+
+    async function loadChains() {
+      var grid = el("chains-grid");
+      try {
+        var data = await api("/api/v1/chains");
+        grid.innerHTML = data.chains.map(function (chain, index) {
+          var count = (chain.modules || []).length;
+          var names = (chain.modules || []).map(function (m) { return esc(m.name); }).join(", ");
+          return '<div class="card"><div class="chain-header">'
+               + "<span style=\"font-weight:700;\">" + (index + 1) + ". " + esc(chain.label) + "</span>"
+               + '<span class="badge">' + count + (count === 1 ? " module" : " modules") + "</span></div>"
+               + '<p class="sub">' + esc(chain.blurb || "") + "</p>"
+               + (count ? '<p class="card-foot">' + names + "</p>"
+                        : '<p class="card-foot">No module registered against this slot.</p>')
+               + "</div>";
+        }).join("");
+      } catch (err) {
+        grid.innerHTML = errorBanner("Loading chains", err);
+      }
+    }
+
+    async function loadFleet() {
+      var body = el("fleet-body");
+      body.innerHTML = '<div class="banner info">Probing endpoints over loopback&hellip;</div>';
+      var data;
+      try {
+        data = await api("/health/ready");
+      } catch (err) {
+        // A 503 is a real answer with a body; only a transport failure or an
+        // unparseable response lands here.
+        body.innerHTML = errorBanner("Probing the fleet", err);
+        return;
+      }
+      renderFleet(body, data);
+    }
+
+    function renderFleet(body, data) {
+      var findings = data.bindingFindings || [];
+      var rows = (data.endpoints || []).map(function (e) {
+        return "<tr><td><strong>" + esc(e.id) + "</strong></td>"
+             + "<td><code>" + esc(e.url) + "</code></td>"
+             + "<td>" + (e.required ? "yes" : "no") + "</td>"
+             + "<td>" + healthMark(e.healthy, e.required) + "</td>"
+             + "<td>" + esc(e.status === null || e.status === undefined ? "—" : e.status) + "</td>"
+             + '<td class="wrap">' + esc(e.detail) + "</td></tr>";
+      }).join("");
+
+      body.innerHTML =
+        '<div class="grid-4">'
+        + tile("Readiness", data.status === "ready" ? "Ready" : "Degraded",
+               "checked " + esc(data.checkedAt), data.status === "ready" ? "ok" : "bad")
+        + tile("Loopback bindings", findings.length ? findings.length + " finding(s)" : "Clean",
+               "V10-END-001", findings.length ? "bad" : "ok")
+        + "</div>"
+        + (findings.length
+            ? '<div class="banner error"><strong>Binding findings:</strong> '
+              + findings.map(esc).join("; ") + "</div>"
+            : "")
+        + (data.unhealthy && data.unhealthy.length
+            ? '<div class="banner error"><strong>Required endpoints unhealthy:</strong> '
+              + data.unhealthy.map(esc).join(", ") + "</div>"
+            : "")
+        + '<div class="card"><div class="table-scroll"><table>'
+        + "<thead><tr><th>Endpoint</th><th>Probe URL</th><th>Required</th><th>Status</th><th>HTTP</th><th>Detail</th></tr></thead>"
+        + "<tbody>" + (rows || '<tr><td colspan="6" class="empty">No endpoints declared.</td></tr>') + "</tbody>"
+        + "</table></div></div>";
+    }
+
+    // ---- cognitive mesh ----------------------------------------------
+
+    async function loadMesh() {
+      var body = el("mesh-body");
+      try {
+        var mesh = await api("/api/v1/mesh/axes");
+        var loop = await api("/api/v1/annealing");
+
+        var tiles = '<div class="grid-4">'
+          + tile("Axes implemented", mesh.implemented + "/" + mesh.total,
+                 mesh.reserved + " reserved, not built")
+          + tile("Axes live now", String(mesh.live),
+                 "implemented and answering", mesh.live ? "ok" : "warn")
+          + tile("Forwarded to the observer", String(loop.forwarded),
+                 "onto the " + esc(loop.axis) + " axis")
+          + tile("Ingress membrane",
+                 (loop.ingress && loop.ingress.open) ? "Open" : "Closed",
+                 "consent tier " + esc((loop.ingress || {}).consentTier),
+                 (loop.ingress && loop.ingress.open) ? "ok" : "muted")
+          + tile("Intake pending", String(loop.pending),
+                 loop.lastError ? "loop deferred: " + loop.lastError
+                                : (loop.lastSuccessAt ? "last forwarded " + loop.lastSuccessAt
+                                                      : "loop has not forwarded yet"),
+                 loop.lastError ? "bad" : (loop.pending ? "warn" : "ok"))
+          + "</div>";
+
+        var banner = "";
+        var ingress = loop.ingress || {};
+        if (ingress.open === false) {
+          // An empty queue at tier 0 is a shut door, not a quiet one.
+          banner += '<div class="banner info"><strong>The ingress membrane is closed.</strong> '
+                  + esc(ingress.reason) + "</div>";
+        }
+        if (loop.lastError) {
+          banner = '<div class="banner error"><strong>The annealing loop is deferred.</strong> '
+                 + esc(loop.lastError) + " Nothing is lost; the queue holds at record "
+                 + esc(loop.cursor) + " and resumes when the observer answers.</div>";
+        } else if (!loop.lastSuccessAt && loop.pending) {
+          banner = '<div class="banner info">The loop has not forwarded anything yet. '
+                 + esc(loop.pending) + " record(s) are waiting for the next period.</div>";
+        }
+
+        var rows = mesh.axes.map(function (a) {
+          var tone = a.status === "live" ? "ok"
+                   : a.status === "reserved" ? "muted"
+                   : a.status === "down" ? "bad" : "warn";
+          return "<tr><td><strong>" + esc(a.axis) + "</strong></td>"
+               + '<td class="wrap">' + esc(a.role) + "</td>"
+               + "<td>" + esc(a.endpointId || "—") + "</td>"
+               + "<td>" + esc(a.quipuSource || "—") + "</td>"
+               + "<td>" + (a.implemented ? "yes" : "<strong>no</strong>") + "</td>"
+               + '<td class="' + tone + '">' + esc(a.status) + "</td>"
+               + '<td class="wrap muted">' + esc(a.reservedNote || "") + "</td></tr>";
+        }).join("");
+
+        body.innerHTML = tiles + banner
+          + '<div class="card"><div class="card-title">Sense-axes</div>'
+          + '<div class="table-scroll"><table><thead><tr>'
+          + "<th>Axis</th><th>Role</th><th>Endpoint</th><th>Observer source</th>"
+          + "<th>Implemented</th><th>Status</th><th>Note</th>"
+          + "</tr></thead><tbody>" + rows + "</tbody></table></div></div>"
+          + '<div class="card"><div class="card-title">Annealing seam</div>'
+          + '<p class="sub">Screened external observations are distilled to their shape '
+          + "and forwarded to the observer. Feature vectors are described by dimension "
+          + "and norm; no submitted field value crosses.</p>"
+          + '<div class="table-scroll"><table><tbody>'
+          + "<tr><th>Queue</th><td><code>" + esc(loop.queue) + "</code></td></tr>"
+          + "<tr><th>Observer</th><td><code>" + esc(loop.observerUrl) + "/observe</code></td></tr>"
+          + "<tr><th>Queue depth</th><td>" + esc(loop.queueDepth) + "</td></tr>"
+          + "<tr><th>Cursor</th><td>" + esc(loop.cursor) + "</td></tr>"
+          + "<tr><th>Skipped as non-trainable</th><td>" + esc(loop.skipped) + "</td></tr>"
+          + "<tr><th>Last run</th><td>" + esc(loop.lastRunAt || "never") + "</td></tr>"
+          + "</tbody></table></div></div>";
+      } catch (err) {
+        body.innerHTML = errorBanner("Loading the cognitive mesh", err);
+      }
+    }
+
+    async function drainIntake() {
+      var button = el("anneal-drain-btn");
+      button.disabled = true;
+      try {
+        await elevate("Reviewer");
+        var result = await postJson("/api/v1/annealing/drain", {});
+        await loadMesh();
+        if (result.error) {
+          alert("The observer deferred the batch: " + result.error
+                + "\nNothing was lost; the queue resumes where it stopped.");
+        }
+      } catch (err) {
+        alert("Drain refused. " + describeError(err));
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    // ---- Hub Floor ---------------------------------------------------
+
+    async function loadTasks() {
+      var body = el("floor-body");
+      var filter = el("floor-filter").value;
+      try {
+        var data = await api("/api/v1/tasks" + (filter ? "?state=" + encodeURIComponent(filter) : ""));
+        if (!data.tasks.length) {
+          body.innerHTML = '<div class="empty">No tasks'
+            + (filter ? " in state " + esc(filter) : "") + " yet.</div>";
+          return;
+        }
+        var rows = data.tasks.map(function (t) {
+          var tone = t.state === "HELD" ? "warn"
+                   : (t.state === "REJECTED" ? "bad"
+                   : (t.state === "ACCEPTED" || t.state === "PROMOTED" ? "ok" : "muted"));
+          var actions = "";
+          if (t.state === "HELD") {
+            actions = '<button class="btn small" data-accept="' + esc(t.id) + '">Accept</button> '
+                    + '<button class="btn small danger" data-reject="' + esc(t.id) + '">Reject</button>';
+          }
+          actions += ' <button class="btn small ghost" data-audit="' + esc(t.id) + '">Trail</button>';
+          return "<tr><td><code>" + esc(t.id) + "</code></td>"
+               + "<td>" + esc(t.kind) + "</td>"
+               + '<td class="' + tone + '">' + esc(t.state) + "</td>"
+               + "<td>" + esc(t.actor_id) + "</td>"
+               + "<td>" + esc(t.updated_at) + "</td>"
+               + '<td class="wrap">' + esc(t.held_reason || "") + "</td>"
+               + "<td>" + actions + "</td></tr>"
+               + '<tr id="trail-' + esc(t.id) + '" style="display:none;"><td colspan="7" class="wrap muted"></td></tr>';
+        }).join("");
+        body.innerHTML = '<div class="table-scroll"><table><thead><tr>'
+          + "<th>Task ID</th><th>Kind</th><th>State</th><th>Actor</th><th>Updated</th><th>Reason</th><th>Action</th>"
+          + "</tr></thead><tbody>" + rows + "</tbody></table></div>";
+      } catch (err) {
+        body.innerHTML = errorBanner("Loading the task ledger", err);
+      }
+    }
+
+    async function acceptTask(taskId) {
+      try {
+        await elevate("Reviewer");
+        await postJson("/api/v1/tasks/accept", { taskId: taskId });
+        await loadTasks();
+      } catch (err) { alert("Accept refused. " + describeError(err)); }
+    }
+
+    async function rejectTask(taskId) {
+      var reason = prompt("Reason for rejecting " + taskId + ":", "");
+      if (reason === null) { return; }
+      try {
+        await elevate("Reviewer");
+        await postJson("/api/v1/tasks/reject",
+          { taskId: taskId, reason: reason || "rejected by reviewer" });
+        await loadTasks();
+      } catch (err) { alert("Reject refused. " + describeError(err)); }
+    }
+
+    async function triggerQuipuAnneal() {
+      try {
+        var res = await fetch("http://127.0.0.1:7100/anneal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source: "hub-floor" })
+        });
+        var data = await res.json();
+        alert("QUIPU Annealing Triggered. Result: " + JSON.stringify(data));
+      } catch (err) {
+        alert("QUIPU Anneal failed: " + (err.message || err));
+      }
+    }
+
+    async function showTrail(taskId) {
+      var row = el("trail-" + taskId);
+      if (!row) { return; }
+      if (row.style.display !== "none") { row.style.display = "none"; return; }
+      row.style.display = "";
+      var cell = row.firstChild;
+      cell.textContent = "Loading audit trail…";
+      try {
+        var data = await api("/api/v1/tasks/audit?taskId=" + encodeURIComponent(taskId));
+        cell.innerHTML = data.trail.map(function (e) {
+          return esc(e.at) + " — " + esc(e.actor_id) + ": "
+               + esc(e.from_state || "(new)") + " → " + esc(e.to_state)
+               + (e.reason ? " (" + esc(e.reason) + ")" : "");
+        }).join("<br>");
+      } catch (err) {
+        cell.innerHTML = errorBanner("Loading the audit trail", err);
+      }
+    }
+
+    async function createTask() {
+      var kind = el("task-kind").value.trim();
+      if (!kind) { el("task-kind").focus(); return; }
+      var button = el("task-create-btn");
+      button.disabled = true;
+      try {
+        await postJson("/api/v1/tasks", {
+          kind: kind,
+          repoId: el("task-repo").value.trim() || "main"
+        });
+        el("task-kind").value = "";
+        await loadTasks();
+        loadStatus();
+      } catch (err) {
+        alert("Task creation refused. " + describeError(err));
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    // ---- child hubs --------------------------------------------------
+
+    async function loadChildHubs() {
+      var body = el("tunnels-body");
+      try {
+        var data = await api("/api/v1/hubs/children");
+        if (!data.childHubs.length) {
+          body.innerHTML = '<div class="card"><div class="empty">'
+            + "No child hub has registered with this node.<br>"
+            + "A hub appears here after it POSTs to <code>/api/v1/hubs/children/register</code>."
+            + "</div></div>";
+          return;
+        }
+        body.innerHTML = '<div class="grid-4">' + data.childHubs.map(function (h) {
+          return '<div class="card"><div class="chain-header">'
+               + '<span class="card-title" style="margin:0;">' + esc(h.name) + "</span>"
+               + '<span class="badge">' + esc(h.tunnel_type || h.tunnelType || "tunnel") + "</span></div>"
+               + '<div class="card-metric" style="font-size:1.05rem;">'
+               + esc(h.active_workers !== undefined ? h.active_workers : h.activeWorkers) + " worker(s)</div>"
+               + '<p class="card-foot">' + esc(h.org_id || h.orgId || "") + "</p>"
+               + '<button class="btn small" style="width:100%;margin-top:0.75rem;" data-session="'
+               + esc(h.id) + '">Request bounded session</button></div>';
+        }).join("") + "</div>";
+      } catch (err) {
+        body.innerHTML = errorBanner("Loading the child hub mesh", err);
+      }
+    }
+
+    async function requestSession(hubId) {
+      var panel = el("session-panel");
+      try {
+        await elevate("Reviewer");
+        var session = await postJson("/api/v1/hubs/children/session",
+          { childHubId: hubId, protocol: "web-rdp" });
+        el("session-title").textContent = "Bounded session for " + hubId;
+        el("session-json").textContent = JSON.stringify(session, null, 2);
+        panel.style.display = "";
+      } catch (err) {
+        el("session-title").textContent = "Session refused";
+        el("session-json").textContent = describeError(err);
+        panel.style.display = "";
+      }
+    }
+
+    // ---- shared & hub marketplace ------------------------------------
+
+    var currentMktScope = "shared";
+
+    function switchMarketplaceScope(scope) {
+      currentMktScope = scope;
+      var sharedBtn = el("mkt-scope-shared-btn");
+      var hubBtn = el("mkt-scope-hub-btn");
+      var sharedFilters = el("mkt-shared-filters");
+      var hubFilters = el("mkt-hub-filters");
+      var heading = el("mkt-view-heading");
+      var sub = el("mkt-view-sub");
+      var actionTitle = el("mkt-action-title");
+      var tradeForm = el("mkt-trade-form");
+      var xferForm = el("mkt-xfer-form");
+
+      if (scope === "hub") {
+        if (sharedBtn) sharedBtn.className = "btn small ghost";
+        if (hubBtn) hubBtn.className = "btn small";
+        if (sharedFilters) sharedFilters.style.display = "none";
+        if (hubFilters) hubFilters.style.display = "";
+        if (heading) heading.textContent = "Organization Internal Hub Marketplace (Supply Chain)";
+        if (sub) sub.textContent = "GARD Shard infrastructure for Supply Chain practices: ownership, demand forecasting, sales orders, inventory batching, and logistics governance.";
+        if (actionTitle) actionTitle.textContent = "Hub Floor Internal Shard Allocation & Transfer";
+        if (tradeForm) tradeForm.style.display = "none";
+        if (xferForm) xferForm.style.display = "flex";
+      } else {
+        if (sharedBtn) sharedBtn.className = "btn small";
+        if (hubBtn) hubBtn.className = "btn small ghost";
+        if (sharedFilters) sharedFilters.style.display = "";
+        if (hubFilters) hubFilters.style.display = "none";
+        if (heading) heading.textContent = "Web3 GARD-Shard Multi-Axis Marketplace";
+        if (sub) sub.textContent = "Split-view catalog spanning Loadopoly-OCR (Vision) and Bakugo CardCenter (Touch), governed by the GARD-Shard protocol.";
+        if (actionTitle) actionTitle.textContent = "Quick Shard Acquisition / Trade";
+        if (tradeForm) tradeForm.style.display = "flex";
+        if (xferForm) xferForm.style.display = "none";
+      }
+      loadMarketplace();
+    }
+
+    async function loadMarketplace() {
+      var tilesEl = el("marketplace-tiles");
+      var bodyEl = el("marketplace-catalog-body");
+      if (!tilesEl || !bodyEl) { return; }
+
+      if (currentMktScope === "hub") {
+        var domain = el("mkt-domain-filter") ? el("mkt-domain-filter").value : "";
+        try {
+          var hubStats = await api("/api/v1/marketplace/hub/stats");
+          tilesEl.innerHTML =
+            tile("Supply Chain Assets", hubStats.total_hub_assets, (hubStats.domain_breakdown ? Object.keys(hubStats.domain_breakdown).length : 0) + " Active Domains") +
+            tile("Supply Chain Shards", (hubStats.total_supply_chain_shards || 0).toLocaleString(), "GARD-Shard Centralized Backend") +
+            tile("Tracked Inventory Value", "$" + (hubStats.total_inventory_value_usd || 0).toLocaleString(), "Bonded & Warehoused Lots") +
+            tile("Floor Node Syncs", hubStats.hub_sync_records_count || 0, hubStats.last_hub_sync_at ? "Last sync: " + new Date(hubStats.last_hub_sync_at).toLocaleTimeString() : "Ready to sync");
+
+          var url = "/api/v1/marketplace/catalog?scope=hub" + (domain ? "&domain=" + encodeURIComponent(domain) : "");
+          var catData = await api(url);
+          if (!catData.assets || !catData.assets.length) {
+            bodyEl.innerHTML = '<div class="empty">No supply chain assets found for domain: ' + esc(domain || "all") + '</div>';
+            return;
+          }
+
+          var rows = catData.assets.map(function (a) {
+            var domainColor = a.supply_chain_domain === "forecasting" ? "#7c3aed"
+                            : a.supply_chain_domain === "inventory" ? "#059669"
+                            : a.supply_chain_domain === "procurement" ? "#d97706" : "#2563eb";
+            var domainBadge = '<span class="badge" style="background:' + domainColor + ';color:#fff;">' + esc(a.supply_chain_domain || "Supply Chain") + '</span>';
+            var detail = a.sku_ref ? 'SKU: <code>' + esc(a.sku_ref) + '</code>' : (a.batch_id ? 'Batch: <code>' + esc(a.batch_id) + '</code>' : (a.sla_target ? 'SLA: ' + esc(a.sla_target) : ''));
+            return "<tr>" +
+              "<td><code>" + esc(a.asset_id) + "</code></td>" +
+              "<td><strong>" + esc(a.title) + "</strong><br><small class='muted'>" + detail + "</small></td>" +
+              "<td>" + domainBadge + "</td>" +
+              "<td>$" + esc((a.current_shard_price || 1).toFixed(2)) + "</td>" +
+              "<td>" + esc(a.available_shards) + " / " + esc(a.shard_count) + "</td>" +
+              "<td>" + esc(a.org_id || "org-blackbulls") + "</td>" +
+              "<td><button class='btn small ghost' onclick='quickSelectHubAsset(\"" + esc(a.asset_id) + "\")'>Allocate</button></td>" +
+              "</tr>";
+          }).join("");
+
+          bodyEl.innerHTML = '<div class="table-scroll"><table><thead><tr>' +
+            '<th>Asset ID</th><th>Supply Chain Title</th><th>Domain</th><th>Unit Value</th><th>Available Shards</th><th>Org Scope</th><th>Action</th>' +
+            '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+        } catch (err) {
+          bodyEl.innerHTML = errorBanner("Loading Org Hub Marketplace", err);
+        }
+      } else {
+        var axis = el("mkt-axis-filter") ? el("mkt-axis-filter").value : "all";
+        try {
+          var stats = await api("/api/v1/marketplace/stats");
+          tilesEl.innerHTML =
+            tile("Tokenized Assets", stats.total_assets, stats.vision_assets + " Vision · " + stats.touch_assets + " Touch") +
+            tile("Total Shards", (stats.total_shards || 0).toLocaleString(), ((stats.total_shards || 0) - (stats.available_shards || 0)).toLocaleString() + " in circulation") +
+            tile("Circulating Volume", "$" + (stats.circulating_volume_usd || 0).toLocaleString(), (stats.trade_count || 0) + " settled trade(s)") +
+            tile("Distributed Royalties", "$" + (stats.total_royalties_distributed_usd || 0).toFixed(2), "50% Comm · 30% Holder · 20% Maint");
+
+          var catData = await api("/api/v1/marketplace/catalog?scope=shared" + (axis !== "all" ? "&axis=" + encodeURIComponent(axis) : ""));
+          if (!catData.assets || !catData.assets.length) {
+            bodyEl.innerHTML = '<div class="empty">No assets found for axis: ' + esc(axis) + '</div>';
+            return;
+          }
+
+          var rows = catData.assets.map(function (a) {
+            var axisBadge = a.axis === "vision" ? '<span class="badge" style="background:#1d4ed8;color:#fff;">Vision OCR</span>'
+                          : '<span class="badge" style="background:#0f766e;color:#fff;">Touch Metrology</span>';
+            var mintBadge = a.on_chain_minted ? '<span class="ok">&#9679; Minted DCC1</span>' : '<span class="muted">&#9679; Off-Chain</span>';
+            return "<tr>" +
+              "<td><code>" + esc(a.asset_id) + "</code></td>" +
+              "<td><strong>" + esc(a.title) + "</strong><br><small class='muted'>" + esc(a.category) + "</small></td>" +
+              "<td>" + axisBadge + "</td>" +
+              "<td>$" + esc((a.current_shard_price || 1).toFixed(2)) + "</td>" +
+              "<td>" + esc(a.available_shards) + " / " + esc(a.shard_count) + "</td>" +
+              "<td>" + esc(((a.quality_score || 0.95) * 100).toFixed(1)) + "%</td>" +
+              "<td>" + mintBadge + "</td>" +
+              "<td><button class='btn small ghost' onclick='quickSelectTrade(\"" + esc(a.asset_id) + "\")'>Trade</button></td>" +
+              "</tr>";
+          }).join("");
+
+          bodyEl.innerHTML = '<div class="table-scroll"><table><thead><tr>' +
+            '<th>Asset ID</th><th>Title</th><th>Axis</th><th>Shard Price</th><th>Available</th><th>Quality</th><th>Web3 Status</th><th>Action</th>' +
+            '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+        } catch (err) {
+          bodyEl.innerHTML = errorBanner("Loading Marketplace", err);
+        }
+      }
+    }
+
+    function quickSelectTrade(assetId) {
+      if (el("mkt-trade-asset")) { el("mkt-trade-asset").value = assetId; }
+      if (el("mkt-verify-asset")) { el("mkt-verify-asset").value = assetId; }
+    }
+
+    function quickSelectHubAsset(assetId) {
+      if (el("mkt-xfer-asset")) { el("mkt-xfer-asset").value = assetId; }
+      if (el("mkt-verify-asset")) { el("mkt-verify-asset").value = assetId; }
+    }
+
+    async function executeMarketTrade() {
+      var assetId = el("mkt-trade-asset").value.trim();
+      var shards = parseInt(el("mkt-trade-shards").value, 10) || 1;
+      var buyer = el("mkt-trade-buyer").value.trim() || "0x71C7656EC7ab88b098defB751B7401B5f6d89A21";
+      var resEl = el("mkt-trade-res");
+      if (!assetId) { alert("Please specify an Asset ID"); return; }
+      resEl.innerHTML = "<span class='muted'>Executing trade...</span>";
+      try {
+        var result = await postJson("/api/v1/marketplace/trade", {
+          buyer_id: buyer,
+          seller_id: "primary_market",
+          asset_id: assetId,
+          shard_count: shards
+        });
+        resEl.innerHTML = "<span class='ok'>Trade Executed! ID: <code>" + esc(result.transaction_id) + "</code>. Total: $" + esc(result.total_price.toFixed(2)) + " (Royalty: $" + esc(result.royalty.total.toFixed(2)) + ")</span>";
+        await loadMarketplace();
+      } catch (err) {
+        resEl.innerHTML = "<span class='bad'>Trade Failed: " + esc(describeError(err)) + "</span>";
+      }
+    }
+
+    async function executeInternalShardTransfer() {
+      var assetId = el("mkt-xfer-asset").value.trim();
+      var shards = parseInt(el("mkt-xfer-shards").value, 10) || 1;
+      var recipient = el("mkt-xfer-to").value.trim() || "hub-floor-warehouse-mgr";
+      var reason = el("mkt-xfer-reason").value.trim() || "Hub Floor Internal Shard Allocation";
+      var resEl = el("mkt-trade-res");
+      if (!assetId) { alert("Please specify a Supply Chain Asset ID"); return; }
+      resEl.innerHTML = "<span class='muted'>Executing internal shard transfer...</span>";
+      try {
+        var result = await postJson("/api/v1/marketplace/hub/transfer", {
+          from_user: "primary_allocation",
+          to_user: recipient,
+          asset_id: assetId,
+          shard_count: shards,
+          reason: reason
+        });
+        resEl.innerHTML = "<span class='ok'>Allocation Transferred! ID: <code>" + esc(result.transfer_id) + "</code> (" + esc(result.shard_count) + " shards to " + esc(result.to_user) + ")</span>";
+        await loadMarketplace();
+      } catch (err) {
+        resEl.innerHTML = "<span class='bad'>Transfer Failed: " + esc(describeError(err)) + "</span>";
+      }
+    }
+
+    async function triggerFloorNodeSync() {
+      var resEl = el("mkt-verify-res");
+      resEl.innerHTML = "<span class='muted'>Synchronizing Hub Floor manifest...</span>";
+      try {
+        var syncRes = await postJson("/api/v1/marketplace/hub/sync", {
+          hub_id: "hub-floor-main",
+          org_id: BOOT.orgId || "org-blackbulls-hideout-01",
+          worker_id: "worker-floor-01"
+        });
+        resEl.innerHTML = "<span class='ok'>&#10004; Hub Floor Synced! (" + esc(syncRes.hub_assets_count) + " supply chain shard assets verified)</span>";
+        await loadMarketplace();
+      } catch (err) {
+        resEl.innerHTML = "<span class='bad'>Sync Failed: " + esc(describeError(err)) + "</span>";
+      }
+    }
+
+    async function runGardShardSealTest() {
+      var assetId = el("mkt-verify-asset").value.trim() || "doc-genesis-ocr-001";
+      var resEl = el("mkt-verify-res");
+      resEl.innerHTML = "<span class='muted'>Sealing &amp; Authenticating GARD Shard...</span>";
+      try {
+        var shardRes = await postJson("/api/v1/marketplace/gard/shard", {
+          asset_id: assetId,
+          payload: { asset: assetId, timestamp: Date.now(), test: "sovereign-guard-audit" },
+          shard_count: 4
+        });
+        var verifyRes = await postJson("/api/v1/marketplace/gard/verify", {
+          envelope: shardRes.envelope
+        });
+        if (verifyRes.result && verifyRes.result.verified) {
+          resEl.innerHTML = "<span class='ok'>&#10004; GARD-Shard Verified (v2 AES-256-GCM AEAD). Digest: <code>" + esc(shardRes.envelope.model_digest.substring(0, 16)) + "…</code> (" + shardRes.envelope.shard_count + " shards)</span>";
+        } else {
+          resEl.innerHTML = "<span class='bad'>Verification failed</span>";
+        }
+      } catch (err) {
+        resEl.innerHTML = "<span class='bad'>GARD Test Failed: " + esc(describeError(err)) + "</span>";
+      }
+    }
+
+    // ---- modules and node --------------------------------------------
+
+    async function loadModules() {
+      var body = el("modules-body");
+      try {
+        var data = await api("/api/v1/modules");
+        if (!data.modules.length) {
+          body.innerHTML = '<div class="card"><div class="empty">No modules registered.</div></div>';
+          return;
+        }
+        body.innerHTML = '<div class="grid-4">' + data.modules.map(function (m) {
+          return '<div class="card"><div class="chain-header">'
+               + '<span class="card-title" style="margin:0;">' + esc(m.chain) + "</span>"
+               + '<span class="badge">v' + esc(m.version) + "</span></div>"
+               + '<div class="card-metric" style="font-size:1.05rem;">' + esc(m.name) + "</div>"
+               + '<p class="card-foot">' + esc(m.description || m.id) + "</p>"
+               + '<p class="card-foot">' + esc((m.capabilities || []).join(", ")) + "</p>"
+               + '<p class="card-foot ' + (m.enabled ? "ok" : "muted") + '">'
+               + (m.enabled ? "enabled" : "disabled") + "</p></div>";
+        }).join("") + "</div>";
+      } catch (err) {
+        body.innerHTML = errorBanner("Loading the module registry", err);
+      }
+    }
+
+    async function loadNode() {
+      var body = el("node-body");
+      try {
+        var s = state.status || await api("/api/v1/status");
+        state.status = s;
+        var fed = s.federation;
+        var rows = [
+          ["Organization", s.identity.orgName + " (" + s.identity.orgId + ")"],
+          ["Hub", s.identity.hubName],
+          ["Advisor persona", s.identity.askPersona],
+          ["Synthetic assistant", s.identity.virtualPersona],
+          ["HubCore version", s.hubcoreVersion],
+          ["Uptime", Math.round(s.uptimeSeconds) + " s"],
+          ["Hardware tier", "Tier " + s.hardware.tier + " — " + s.hardware.tierName],
+          ["Concurrent resident models", s.hardware.concurrentResidentModels],
+          ["Heavy model budget", s.hardware.heavyModelBudgetMb + " MB"],
+          ["Air-lock mode", s.airlock.mode],
+          ["Zero external compute", s.airlock.zeroExternalCompute ? "enforced" : "NOT enforced"],
+          ["Intake queue depth", s.airlock.queueDepth],
+          ["Federation", fed.federationEnabled
+            ? "enabled at consent tier " + fed.consentTier
+            : "disabled"],
+          ["Federation signals ingested", fed.signalsIngested],
+          ["Registered child hubs", s.childHubs],
+          ["Registered modules", s.modules.total]
+        ];
+        body.innerHTML = '<div class="card"><div class="table-scroll"><table><tbody>'
+          + rows.map(function (r) {
+              return "<tr><th style=\"width: 40%;\">" + esc(r[0]) + "</th>"
+                   + '<td class="wrap">' + esc(r[1]) + "</td></tr>";
+            }).join("")
+          + "</tbody></table></div></div>";
+      } catch (err) {
+        body.innerHTML = errorBanner("Loading node configuration", err);
+      }
+    }
+
+    // ---- advisor -----------------------------------------------------
+
+    async function sendAdvisorQuery() {
+      var input = el("advisor-input");
+      var query = input.value.trim();
+      if (!query) { return; }
+      input.value = "";
+
+      var stream = el("chat-stream");
+      var userMessage = document.createElement("div");
+      userMessage.className = "message user";
+      userMessage.textContent = query;
+      stream.appendChild(userMessage);
+      stream.scrollTop = stream.scrollHeight;
+
+      var button = el("advisor-send");
+      button.disabled = true;
+      var reply = document.createElement("div");
+      reply.className = "message bot";
+      reply.textContent = "…";
+      stream.appendChild(reply);
+      stream.scrollTop = stream.scrollHeight;
+
+      try {
+        var data = await postJson("/api/v1/advisor/request", {
+          body: query,
+          mode: "text"
+        });
+        var citations = (data.citations || []).length
+          ? data.citations.map(function (c) {
+              return esc(c.source) + " (" + esc(c.section) + ", "
+                   + Math.round((c.confidence || 0) * 100) + "%)";
+            }).join(" • ")
+          : "no governed source matched";
+
+        var gate = data.requiresAdmin ? "Admin involvement required"
+                 : data.requiresReviewer ? "reviewer approval required"
+                 : "policy gate";
+        var notes = [];
+        if (data.escalated) { notes.push("escalated: " + esc(data.escalationReason)); }
+        if ((data.quarantined || []).length) {
+          notes.push("quarantined instruction-shaped text: "
+                     + data.quarantined.map(esc).join(", ") + " (ignored)");
+        }
+        if (data.adminSynopsis && data.adminSynopsis.prepared === false) {
+          notes.push("v-ADMIN synopsis not prepared — " + esc(data.adminSynopsis.reason));
+        } else if (data.adminSynopsis) {
+          notes.push("parallel v-ADMIN synopsis queued for the Admin");
+        }
+
+        reply.innerHTML = esc(data.answer)
+          + '<div class="citations-box">'
+          + "<strong>Grade " + esc(data.grade) + "</strong> — " + esc(data.gradeMeaning)
+          + "<br>Route: " + esc(data.route)
+          + "<br>Gate: " + esc(gate) + " • state " + esc(data.state)
+          + "<br>Sources: " + citations
+          + " • confidence " + Math.round((data.confidence || 0) * 100) + "%"
+          + " • " + esc(data.latencyMs) + " ms"
+          + (notes.length ? "<br>" + notes.join("<br>") : "")
+          + (data.disclosure ? "<br><em>" + esc(data.disclosure) + "</em>" : "")
+          + "</div>";
+        loadAdvisorLedger();
+      } catch (err) {
+        // No fabricated answer: the advisor either answered or it did not.
+        reply.className = "message error";
+        reply.textContent = "No answer. " + describeError(err);
+      } finally {
+        button.disabled = false;
+        stream.scrollTop = stream.scrollHeight;
+      }
+    }
+
+    function renderGradeMatrix() {
+      el("grade-matrix-tbody").innerHTML = (BOOT.gradeMatrix || []).map(function (row) {
+        return "<tr><td><strong>" + esc(row.grade) + "</strong></td>"
+             + '<td class="wrap">' + esc(row.meaning) + "</td>"
+             + '<td class="wrap">' + esc(row.route) + "</td>"
+             + "<td>" + esc(row.human_gate) + "</td>"
+             + "<td>" + esc(row.expert_weight) + "</td>"
+             + '<td class="' + (row.may_auto_close ? "muted" : "warn") + '">'
+             + (row.may_auto_close ? "yes" : "no") + "</td></tr>";
+      }).join("");
+    }
+
+    async function loadAdvisorLedger() {
+      renderGradeMatrix();
+      var body = el("advisor-ledger");
+      try {
+        var data = await api("/api/v1/advisor/requests");
+        if (!data.requests.length) {
+          body.innerHTML = '<div class="empty">No advisor requests yet.</div>';
+          return;
+        }
+        body.innerHTML = '<div class="table-scroll"><table><thead><tr>'
+          + "<th>Request</th><th>Grade</th><th>State</th><th>Gate</th><th>Requestor</th><th>Body</th><th>Action</th>"
+          + "</tr></thead><tbody>" + data.requests.map(function (r) {
+              var tone = r.state === "CLOSED" ? "muted"
+                       : r.state === "ESCALATED" ? "bad"
+                       : r.state === "READY_TO_SEND" ? "ok" : "warn";
+              var actions = "";
+              if (r.state === "AWAITING_REVIEWER") {
+                actions += '<button class="btn small" data-advreview="' + esc(r.requestId) + '">Approve</button> ';
+              }
+              if (r.state === "AWAITING_ADMIN") {
+                actions += '<button class="btn small" data-advadmin="' + esc(r.requestId) + '">Admin approve</button> ';
+              }
+              if (r.state === "READY_TO_SEND") {
+                actions += '<button class="btn small" data-advsend="' + esc(r.requestId) + '">Send</button> ';
+              }
+              actions += '<button class="btn small ghost" data-advtrail="' + esc(r.requestId) + '">Trail</button>';
+              return "<tr><td><code>" + esc(r.requestId) + "</code></td>"
+                   + "<td>" + esc(r.grade) + "</td>"
+                   + '<td class="' + tone + '">' + esc(r.state) + "</td>"
+                   + "<td>" + esc(r.humanGate) + "</td>"
+                   + "<td>" + esc(r.requestorSubject) + "</td>"
+                   + '<td class="wrap">' + esc((r.body || "").slice(0, 90)) + "</td>"
+                   + "<td>" + actions + "</td></tr>"
+                   + '<tr id="advtrail-' + esc(r.requestId) + '" style="display:none;"><td colspan="7" class="wrap muted"></td></tr>';
+            }).join("") + "</tbody></table></div>";
+      } catch (err) {
+        body.innerHTML = errorBanner("Loading the advisor ledger", err);
+      }
+    }
+
+    async function advisorAct(path, payload, label, role) {
+      try {
+        if (role) { await elevate(role); }
+        await postJson(path, payload);
+        await loadAdvisorLedger();
+        loadVadmin();
+      } catch (err) {
+        alert(label + " refused. " + describeError(err));
+      }
+    }
+
+    async function showAdvisorTrail(requestId) {
+      var row = el("advtrail-" + requestId);
+      if (!row) { return; }
+      if (row.style.display !== "none") { row.style.display = "none"; return; }
+      row.style.display = "";
+      var cell = row.firstChild;
+      cell.textContent = "Loading…";
+      try {
+        var data = await api("/api/v1/advisor/request?requestId=" + encodeURIComponent(requestId));
+        cell.innerHTML = data.trail.map(function (e) {
+          return esc(e.at) + " — " + esc(e.stage) + " by " + esc(e.actor_id)
+               + (e.detail ? ": " + esc(e.detail) : "");
+        }).join("<br>");
+      } catch (err) {
+        cell.innerHTML = errorBanner("Loading the advisor trail", err);
+      }
+    }
+
+    // ---- v-ADMIN -----------------------------------------------------
+
+    async function loadVadmin() {
+      var body = el("vadmin-body");
+      try {
+        var status = await api("/api/v1/vadmin");
+        var queue = await api("/api/v1/vadmin/queue");
+        el("vadmin-disclosure").textContent = status.disclosure;
+        el("vadmin-kill-btn").textContent = status.killSwitchEngaged
+          ? "Release kill switch" : "Engage kill switch";
+        el("vadmin-kill-btn").dataset.engaged = status.killSwitchEngaged ? "1" : "0";
+
+        var boundary = status.authorityBoundary;
+        var tiles = '<div class="grid-4">'
+          + tile("Kill switch", status.killSwitchEngaged ? "Engaged" : "Released",
+                 status.killSwitchReason || "synthetic assistant active",
+                 status.killSwitchEngaged ? "warn" : "ok")
+          + tile("Awaiting a human", String(status.pending),
+                 "resolved " + status.resolved, status.pending ? "warn" : "")
+          + tile("May decide", boundary.mayDecide ? "Yes" : "No",
+                 "closure, promotion, and approval stay human", "ok")
+          + tile("May widen authority", boundary.mayWidenAuthority ? "Yes" : "No",
+                 "Part 10.2 learning boundary", "ok")
+          + "</div>";
+
+        var rows = queue.queue.length
+          ? '<div class="table-scroll"><table><thead><tr>'
+            + "<th>Entry</th><th>Grade</th><th>Request</th><th>Summary</th><th>Prepared</th><th>Action</th>"
+            + "</tr></thead><tbody>" + queue.queue.map(function (e) {
+                return "<tr><td><code>" + esc(e.id) + "</code></td>"
+                     + '<td class="' + (e.grade >= 5 ? "bad" : "warn") + '">' + esc(e.grade) + "</td>"
+                     + "<td><code>" + esc(e.requestId) + "</code></td>"
+                     + '<td class="wrap">' + esc(e.summary) + "</td>"
+                     + "<td>" + esc(e.preparedAt) + "</td>"
+                     + '<td><button class="btn small" data-vresolve="' + esc(e.id) + '">Resolve</button></td></tr>';
+              }).join("") + "</tbody></table></div>"
+          : '<div class="empty">Nothing is waiting on the Admin.</div>';
+
+        body.innerHTML = tiles + '<div class="card">' + rows + "</div>";
+      } catch (err) {
+        body.innerHTML = errorBanner("Loading the v-ADMIN queue", err);
+      }
+    }
+
+    async function toggleKillSwitch() {
+      var button = el("vadmin-kill-btn");
+      var engage = button.dataset.engaged !== "1";
+      var reason = engage ? (prompt("Reason:", "") || "") : "";
+      try {
+        await elevate("Admin");
+        await postJson("/api/v1/vadmin/kill-switch",
+          { engaged: engage, reason: reason });
+        await loadVadmin();
+      } catch (err) {
+        alert("Refused. " + describeError(err));
+      }
+    }
+
+    async function resolveVadminEntry(entryId) {
+      var resolution = prompt("Resolution:", "");
+      if (!resolution) { return; }
+      try {
+        await elevate("Admin");
+        await postJson("/api/v1/vadmin/queue/resolve",
+          { entryId: entryId, resolution: resolution });
+        await loadVadmin();
+      } catch (err) {
+        alert("Refused. " + describeError(err));
+      }
+    }
+
+    function refreshAll() {
+      loadStatus();
+      if (LOADERS[state.view] && state.view !== "dashboard") { LOADERS[state.view](); }
+    }
+
+    // ---- wiring ------------------------------------------------------
+
+    document.querySelectorAll(".nav-item").forEach(function (item) {
+      item.addEventListener("click", function () { switchView(item.dataset.view, item); });
+    });
+    el("advisor-send").addEventListener("click", sendAdvisorQuery);
+    el("advisor-input").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { sendAdvisorQuery(); }
+    });
+    el("fleet-probe-btn").addEventListener("click", loadFleet);
+    el("task-create-btn").addEventListener("click", createTask);
+    el("floor-filter").addEventListener("change", loadTasks);
+    el("vadmin-kill-btn").addEventListener("click", toggleKillSwitch);
+    el("anneal-drain-btn").addEventListener("click", drainIntake);
+
+    document.addEventListener("click", function (event) {
+      var target = event.target;
+      if (!target || !target.dataset) { return; }
+      if (target.dataset.accept) { acceptTask(target.dataset.accept); }
+      else if (target.dataset.reject) { rejectTask(target.dataset.reject); }
+      else if (target.dataset.audit) { showTrail(target.dataset.audit); }
+      else if (target.dataset.session) { requestSession(target.dataset.session); }
+      else if (target.dataset.advtrail) { showAdvisorTrail(target.dataset.advtrail); }
+      else if (target.dataset.advreview) {
+        // The reviewer is whoever the token says; there is no id to type.
+        advisorAct("/api/v1/advisor/review",
+          { requestId: target.dataset.advreview, approve: true }, "Review", "Reviewer");
+      } else if (target.dataset.advadmin) {
+        advisorAct("/api/v1/advisor/admin-review",
+          { requestId: target.dataset.advadmin, approve: true }, "Admin review", "Admin");
+      } else if (target.dataset.advsend) {
+        advisorAct("/api/v1/advisor/send", { requestId: target.dataset.advsend },
+          "Send", "Reviewer");
+      } else if (target.dataset.vresolve) {
+        resolveVadminEntry(target.dataset.vresolve);
+      }
+    });
+
+    window.refreshAll = refreshAll;
+    window.loadTasks = loadTasks;
+    window.loadChildHubs = loadChildHubs;
+    window.loadModules = loadModules;
+    window.loadAdvisorLedger = loadAdvisorLedger;
+    window.loadVadmin = loadVadmin;
+    window.loadMesh = loadMesh;
+    window.loadMarketplace = loadMarketplace;
+    window.switchMarketplaceScope = switchMarketplaceScope;
+    window.quickSelectTrade = quickSelectTrade;
+    window.quickSelectHubAsset = quickSelectHubAsset;
+    window.executeMarketTrade = executeMarketTrade;
+    window.executeInternalShardTransfer = executeInternalShardTransfer;
+    window.triggerFloorNodeSync = triggerFloorNodeSync;
+    window.runGardShardSealTest = runGardShardSealTest;
+
+    document.title = BOOT.hubName + " — " + BOOT.orgName;
+    updateSessionBadge();
+    loadStatus();
+    setInterval(loadStatus, 30000);
+  })();
+  </script>
+</body>
+</html>
+"""

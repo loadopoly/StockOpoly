@@ -1,0 +1,35 @@
+{
+  "schema": "stockopoly.holons/1",
+  "hub": "Holon Hub",
+  "description": "Holons hosted by or attributed to the Loadopoly system. Holon-related work lives in StockOpoly/holons; a holon may declare a different hostRepo when it belongs to another axis.",
+  "holons": [
+    {
+      "holon_id": "x_osq",
+      "name": "x_OSQ - Order, Sales, Quote & Forecast Governance",
+      "hostRepo": "loadopoly/StockOpoly",
+      "path": "holons/x_osq",
+      "manifest": "holons/x_osq/holon.json",
+      "surfaces": ["x_OSQ.html", "x_CRM.html", "OSQ.html"],
+      "axis": "space"
+    },
+    {
+      "holon_id": "x_hubcore",
+      "name": "HubCore kernel services (air-lock, bus, data plane, marketplace)",
+      "hostRepo": "loadopoly/StockOpoly",
+      "path": "holons/x_hubcore",
+      "manifest": null,
+      "surfaces": ["holons/hub/Hub_v10.html"],
+      "axis": "space"
+    },
+    {
+      "holon_id": "x_deepmap",
+      "name": "DeepMap - Agent 365 Identity & Provisioning",
+      "hostRepo": "loadopoly/Perceptopoly",
+      "path": "holons/x_deepmap",
+      "manifest": "holons/x_deepmap/holon.json",
+      "surfaces": [],
+      "axis": "perception",
+      "expansion": "gnn-vnn-mesh"
+    }
+  ]
+}

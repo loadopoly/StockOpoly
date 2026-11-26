@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 10,
+  "modules": [
+    {
+      "manifestVersion": 2,
+      "moduleId": "vision-capture",
+      "name": "Vision Capture",
+      "version": "2.25.0",
+      "entrypoint": "Module.html",
+      "chainId": "source",
+      "capabilities": ["dashboard", "data.read", "ocr.capture"],
+      "endpointRef": "visionCapture",
+      "enabled": true,
+      "dataContracts": [],
+      "permissions": [],
+      "integrity": { "sha256": "", "signatureRef": "" }
+    },
+    {
+      "manifestVersion": 2,
+      "moduleId": "structured-metrology",
+      "name": "Structured Metrology",
+      "version": "2.7.0",
+      "entrypoint": "Module.html",
+      "chainId": "transform",
+      "capabilities": ["dashboard", "data.read", "metrology.touch"],
+      "endpointRef": "structuredMetrology",
+      "enabled": true,
+      "dataContracts": [],
+      "permissions": [],
+      "integrity": { "sha256": "", "signatureRef": "" }
+    },
+    {
+      "manifestVersion": 2,
+      "moduleId": "decision-core",
+      "name": "Decision Core",
+      "version": "0.30.0",
+      "entrypoint": "Module.html",
+      "chainId": "orchestrate",
+      "capabilities": ["dashboard", "data.read", "comms", "ask"],
+      "endpointRef": "decisionEngine",
+      "enabled": true,
+      "dataContracts": [],
+      "permissions": [],
+      "integrity": { "sha256": "", "signatureRef": "" }
+    },
+    {
+      "manifestVersion": 2,
+      "moduleId": "observer-console",
+      "name": "Observer Console",
+      "version": "0.30.0",
+      "entrypoint": "Module.html",
+      "chainId": "plan",
+      "capabilities": ["dashboard", "observer.read"],
+      "endpointRef": "observer",
+      "enabled": true,
+      "dataContracts": [],
+      "permissions": [],
+      "integrity": { "sha256": "", "signatureRef": "" }
+    },
+    {
+      "manifestVersion": 2,
+      "moduleId": "shared-marketplace",
+      "name": "Shared GARD Marketplace",
+      "version": "1.1.0",
+      "entrypoint": "Module.html",
+      "chainId": "fulfill",
+      "capabilities": ["dashboard", "data.read", "data.export", "ocr.capture", "metrology.touch", "inventory.unified-marketplace"],
+      "endpointRef": "gardMarketplace",
+      "enabled": true,
+      "dataContracts": ["gard-shard-envelope/v2", "inventory.physical-unified/v2.4"],
+      "permissions": [],
+      "integrity": { "sha256": "", "signatureRef": "" }
+    },
+    {
+      "manifestVersion": 2,
+      "moduleId": "osq-forecast-governance",
+      "name": "HolonHubLive OSQ Forecast & Kitting Governance",
+      "version": "2.5.0",
+      "entrypoint": "Module.html",
+      "chainId": "order",
+      "capabilities": [
+        "dashboard", "data.read", "data.export", "comms", "observer.read", "observer.feedback",
+        "blob.write", "mesh.federate", "hubcore.register", "inventory.time-phased",
+        "routing.dijkstra-density", "ifr.auto-po", "bom.modular-flatten",
+        "rfid.transit-feedback", "quipu.note-classify", "stockopoly.slot-bridge", "sap.signal-bridge",
+        "pathway.bifurcation", "efferent.directives"
+      ],
+      "endpointRef": "osqEngine",
+      "enabled": true,
+      "dataContracts": [
+        "osq.relational.static/v2",
+        "osq.shared.temp/v2",
+        "osq.authoritative.sqlite/v2.4",
+        "osq.ephemeral.sqlite/v2.4",
+        "osq.parquet.snapshot/v2.4",
+        "osq.timephased.qoh/v2.4",
+        "holonhub.rfid.transit/v2.4",
+        "holonhub.ifr.po/v2.4",
+        "holonhub.pathway.directive/v2.5",
+        "gard-shard-envelope/v2"
+      ],
+      "permissions": [],
+      "integrity": {
+        "sha256": "0535354f6109cc6ffbec196363ff9950e4654394bc4d79ebc8c5a94badde3738",
+        "signatureRef": ""
+      }
+    },
+    {
+      "manifestVersion": 2,
+      "moduleId": "return-quarantine-governance",
+      "name": "Return & Receiving Quarantine Governance",
+      "version": "2.5.0",
+      "entrypoint": "Module.html",
+      "chainId": "return",
+      "capabilities": [
+        "dashboard", "data.read", "data.export", "observer.feedback",
+        "quarantine.inspect", "return.disposition", "vendor.rma_draft"
+      ],
+      "endpointRef": "osqEngine",
+      "enabled": true,
+      "dataContracts": [
+        "holonhub.return.quarantine/v2.5",
+        "holonhub.ifr.po/v2.4",
+        "osq.authoritative.sqlite/v2.4"
+      ],
+      "permissions": [],
+      "integrity": { "sha256": "", "signatureRef": "" }
+    }
+  ]
+}

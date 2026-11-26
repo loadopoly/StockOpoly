@@ -1,0 +1,305 @@
+{
+  "holon": {
+    "id": "x_osq",
+    "instanceId": "x_osq-node-a-01",
+    "homeNodeId": "node-a-osq-home",
+    "name": "x_OSQ - HolonHubLive Order, Sales, Quote & Intelligent Forecast Governance Holon",
+    "version": "2.5.0",
+    "liveRuntime": "HolonHubLive",
+    "protocolVersion": "holon-mesh/2.5",
+    "domains": ["forecast-governance", "cpq-capex-bridge", "flex_logic_kitting", "unified-inventory-marketplace", "cyber-physical-pathways"],
+    "description": "Sovereign Node A domain Holon and HolonHubLive (:8900) federated MESH participant inside Holon Hub (HubCore :8000 Air-Lock) and GARD Marketplace (:8600 Trust Gate). Implements direct-API time-phased QOH (Snowflake export-only), physical-only Unified Inventory Marketplace + Weighted Greedy Dijkstra routing (prohibiting virtual warehouses), tokenized split-location quotes, 2-sigma/10d & 3-sigma/6d probabilistic stockout guardrails, IFR auto-PO & cancellation-to-receiving-quarantine loops, modular BOM flattening, same-day duplicate STO guard, open-source Rust RFID transit feedback, QUIPU handwritten-note classification, Stockopoly spatial slot lookup, and bidirectional SAP Signal Bridge (blocking raw inventory writes).",
+    "skill": "SKILL.md",
+    "entrypoint": "holon/x_osq.py",
+    "liveEntrypoint": "holon/Start-HolonHubLive.ps1",
+    "runtime": "python>=3.9 (stdlib only) + PowerShell 5.1 HolonHubLive HTTP/SSE runtime"
+  },
+  "hub": {
+    "agentSkillFolder": "skills/x-osq"
+  },
+  "capabilities": [
+    {
+      "id": "osq.forecast-intake",
+      "description": "Ingest and normalize CPQ, Salesforce, SAP, and future forecast sources with accepted-quote eligibility and 6-month horizon gating.",
+      "operations": [
+        { "id": "intake-normalize", "stage": "osq-intake-normalizer", "mode": "read-only", "script": "holon/x_osq.py intake", "emits": ["osq.intake.normalized"] }
+      ]
+    },
+    {
+      "id": "osq.forecast-cleansing",
+      "description": "Direct API time-phased QOH pull & Snowflake transformation retirement: calendar proration, delta detection, and duplicate demand prevention.",
+      "operations": [
+        { "id": "forecast-cleanse", "stage": "osq-forecast-cleanser", "mode": "transformation", "script": "holon/x_osq.py cleanse", "emits": ["osq.forecast.cleansed", "osq.delta.detected", "osq.inventory.timephased"] }
+      ]
+    },
+    {
+      "id": "osq.quipu-intelligence",
+      "description": "Engage QUIPU as an intelligent participant worker for confidence scoring, 70%+ over-forecast suppression, SKU substitution, handwritten floor note classification, and lead-time simulation.",
+      "operations": [
+        { "id": "quipu-curate", "stage": "osq-quipu-intelligence", "mode": "intelligence-worker", "script": "holon/x_osq.py quipu", "emits": ["osq.quipu.curated", "osq.overforecast.suppressed", "osq.sku.substituted", "osq.quipu.note_classified"] }
+      ]
+    },
+    {
+      "id": "osq.forecast-governance",
+      "description": "Enforce Emergency Brake thresholds, 2-sigma/10d & 3-sigma/6d stockout bands, same-day duplicate STO guard, CTO peel governance, and held-result approvals in HubCore.",
+      "operations": [
+        { "id": "governance-gate", "stage": "osq-governance-gate", "mode": "governance-gate", "script": "holon/x_osq.py gate", "emits": ["osq.governance.approved", "osq.emergency_brake.tripped", "osq.approval.requested", "osq.sto.duplicate_blocked"] }
+      ]
+    },
+    {
+      "id": "osq.by-transformation",
+      "description": "Transform cleansed and governed demand into 26-week Blue Yonder buckets, modular BOM splits, and Weighted Greedy Dijkstra routing across the physical-only Unified Inventory Marketplace.",
+      "operations": [
+        { "id": "by-transform", "stage": "osq-by-transformation-worker", "mode": "transformation", "script": "holon/x_osq.py transform", "emits": ["osq.blueyonder.transformed", "osq.quote.split_tokenized"] }
+      ]
+    },
+    {
+      "id": "osq.integration-connectors",
+      "description": "Orchestrate direct SAP/Blue Yonder/IFR/RFID/Stockopoly connectors: IFR auto-PO, cancellation-to-receiving-quarantine, Rust RFID density feedback, Stockopoly bin lookup, and SAP Signal Bridge.",
+      "operations": [
+        { "id": "sync-connectors", "stage": "osq-by-sap-connector", "mode": "connector-sync", "script": "holon/x_osq.py sync", "emits": ["osq.connector.exported", "osq.sap.reservations.synced", "osq.ifr.po_generated", "osq.receiving.quarantine_flagged", "osq.rfid.transit_updated", "osq.sap.signal_dispatched"] },
+        { "id": "run-all", "stage": "osq-forecast-unified-control-plane", "mode": "end-to-end-pipeline", "script": "holon/x_osq.py run", "emits": ["osq.pipeline.completed"] }
+      ]
+    },
+    {
+      "id": "inventory.time-phased",
+      "description": "Direct SAP API time-phased QOH calculation (excluding virtual locations, 916 holds, and past-due CO09 POs).",
+      "operations": [
+        { "id": "time-phased-qoh", "stage": "osq-forecast-cleanser", "mode": "read-only", "script": "holon/Start-HolonHubLive.ps1", "emits": ["osq.inventory.timephased"] }
+      ]
+    },
+    {
+      "id": "routing.dijkstra-density",
+      "description": "Weighted Greedy Dijkstra regional inventory allocation across physical DCs with consolidation cost differential.",
+      "operations": [
+        { "id": "dijkstra-route", "stage": "osq-by-transformation-worker", "mode": "routing", "script": "holon/Start-HolonHubLive.ps1", "emits": ["osq.quote.split_tokenized"] }
+      ]
+    },
+    {
+      "id": "ifr.auto-po",
+      "description": "Automated routine PO generation and cancellation-to-PO-reduction -> receiving quarantine reconciliation.",
+      "operations": [
+        { "id": "auto-po-reconcile", "stage": "osq-by-sap-connector", "mode": "procurement-automation", "script": "holon/Start-HolonHubLive.ps1", "emits": ["osq.ifr.po_generated", "osq.receiving.quarantine_flagged"] }
+      ]
+    },
+    {
+      "id": "bom.modular-flatten",
+      "description": "Modular BOM flattening and co-occurrence ship-together sub-kit bundling.",
+      "operations": [
+        { "id": "flatten-modular", "stage": "osq-by-transformation-worker", "mode": "transformation", "script": "holon/Start-HolonHubLive.ps1", "emits": ["osq.quote.split_tokenized"] }
+      ]
+    },
+    {
+      "id": "rfid.transit-feedback",
+      "description": "Open-source Rust RFID internal/customer shipment clock and live Dijkstra edge-weight updates.",
+      "operations": [
+        { "id": "rfid-telemetry", "stage": "osq-by-sap-connector", "mode": "telemetry", "script": "holon/Start-HolonHubLive.ps1", "emits": ["osq.rfid.transit_updated"] }
+      ]
+    },
+    {
+      "id": "quipu.note-classify",
+      "description": "QUIPU classification of handwritten floor notes, WIP aging, and cycle-count drift risks.",
+      "operations": [
+        { "id": "classify-note", "stage": "osq-quipu-intelligence", "mode": "intelligence-worker", "script": "holon/Start-HolonHubLive.ps1", "emits": ["osq.quipu.note_classified"] }
+      ]
+    },
+    {
+      "id": "stockopoly.slot-bridge",
+      "description": "Stockopoly (:8181) photogrammetry & relational object-detection bin lookup paired with SAP location GET.",
+      "operations": [
+        { "id": "slot-lookup", "stage": "osq-by-sap-connector", "mode": "read-only", "script": "holon/Start-HolonHubLive.ps1", "emits": [] }
+      ]
+    },
+    {
+      "id": "sap.signal-bridge",
+      "description": "Bidirectional SAP UI signal automation (PR/PO adjust, pick knock-off, credit-hold RDD shift) blocking raw inventory mutation.",
+      "operations": [
+        { "id": "dispatch-sap-signal", "stage": "osq-by-sap-connector", "mode": "signal-bridge", "script": "holon/Start-HolonHubLive.ps1", "emits": ["osq.sap.signal_dispatched"] }
+      ]
+    },
+    {
+      "id": "pathway.bifurcation",
+      "description": "Deterministic separation of realizations into Systemic ERP configuration levers (R2,R3,R4,R5,R7,R10) vs Operational efferent work orders.",
+      "operations": [
+        { "id": "classify-pathways", "stage": "osq-governance-gate", "mode": "pathway-router", "script": "holon/Start-HolonHubLive.ps1", "emits": ["osq.pathway.classified"] }
+      ]
+    },
+    {
+      "id": "efferent.directives",
+      "description": "SHA-1 deduplicated body_directives routing across Floor Kanban, Child Hubs, M365 IMMEDIATE_CARD / SHIFT_DIGEST, and auto-closing physical scan feedback.",
+      "operations": [
+        { "id": "route-directives", "stage": "osq-forecast-unified-control-plane", "mode": "efferent-bridge", "script": "holon/Start-HolonHubLive.ps1", "emits": ["osq.directive.emitted", "osq.directive.autoclosed", "osq.m365.escalation_queued"] }
+      ]
+    },
+    {
+      "id": "return.quarantine-governance",
+      "description": "Dedicated 7th Chain (Return) owner for RECEIVING_QUARANTINE_RETURN dock holds and vendor RMA/PO reduction dispositions.",
+      "operations": [
+        { "id": "disposition-return-quarantine", "stage": "osq-by-sap-connector", "mode": "return-chain-gate", "script": "holon/Start-HolonHubLive.ps1", "emits": ["osq.return.quarantine_disposition"] }
+      ]
+    }
+  ],
+  "stages": [
+    { "order": 0, "plane": "orchestration", "skill": "osq-forecast-unified-control-plane", "role": "End-to-end forecast orchestration narrative and contract enforcement" },
+    { "order": 1, "plane": "intake", "skill": "osq-intake-normalizer", "role": "Source schema normalization, accepted-quote filtering, 26-week horizon boundary" },
+    { "order": 2, "plane": "cleansing", "skill": "osq-forecast-cleanser", "role": "Direct API time-phased QOH pull; Snowflake restricted to analytical repository" },
+    { "order": 3, "plane": "intelligence", "skill": "osq-quipu-intelligence", "role": "QUIPU participant worker: confidence, 70%+ suppression, note classification, CTO propensity, lead times" },
+    { "order": 4, "plane": "governance", "skill": "osq-governance-gate", "role": "Emergency Brake, 2-sigma/10d & 3-sigma/6d bands, same-day duplicate STO guard" },
+    { "order": 5, "plane": "transformation", "skill": "osq-by-transformation-worker", "role": "Weekly Blue Yonder buckets (W01-W26), modular BOM flatten, Weighted Dijkstra split allocation" },
+    { "order": 6, "plane": "integration", "skill": "osq-by-sap-connector", "role": "Direct Blue Yonder API pull, SAP signal bridge, IFR auto-PO/quarantine, RFID telemetry" }
+  ],
+  "interfaces": {
+    "http": true,
+    "sse": true,
+    "broadcastMesh": true,
+    "meshMtls": true,
+    "registrationApi": true,
+    "durableOutbox": true,
+    "events": true,
+    "files": true,
+    "cli": true,
+    "copilotSkill": true
+  },
+  "dataTiers": {
+    "relationalStatic": "osq.relational.static/v2",
+    "sharedTemp": "osq.shared.temp/v2",
+    "authoritativeSqlite": "osq.authoritative.sqlite/v2.4",
+    "ephemeralSqlite": "osq.ephemeral.sqlite/v2.4",
+    "immutableParquetWatermark": "osq.parquet.snapshot/v2.4",
+    "hubcoreAirlockSqlite": "hubcore.airlock.sqlite/v2.4",
+    "marketplaceEnvelope": "gard-shard-envelope/v2",
+    "timePhasedQoh": "osq.timephased.qoh/v2.4",
+    "rfidTransit": "holonhub.rfid.transit/v2.4",
+    "ifrAutoPo": "holonhub.ifr.po/v2.4",
+    "cyberPhysicalPathwayBus": "holonhub.pathway.bus/v2.5",
+    "bodyDirectives": "holonhub.efferent.directives/v2.5",
+    "returnQuarantine": "holonhub.return.quarantine/v2.5"
+  },
+  "kittingArchitectureInvariants": {
+    "physicalOnlyNoVirtualBins": true,
+    "snowflakeRole": "analytical-export-only",
+    "directApiPull": true,
+    "probabilisticBands": { "window10dSigmaMin": 2.0, "window6dSigmaMin": 3.0, "expediteWindowDays": 5 },
+    "rfidTracker": "rust-rfid-open-tracker/v1",
+    "rawSapInventoryAdjustPolicy": "forbidden-outside-sap"
+  },
+  "requestedGrants": {
+    "read": ["crm.read", "osq.read", "analytics.duckdb.read", "erp.connector.read", "stockopoly.slot.read"],
+    "mutation": ["crm.write", "cpq.write", "osq.write", "erp.connector.mutate.idempotent", "sap.signal.dispatch"],
+    "artifactExchange": ["gard.artifact.exchange"],
+    "fulfillment": ["connector.fulfillment.execute"],
+    "models": ["model.gateway.invoke"],
+    "workflows": ["process.studio.submit_task"]
+  },
+  "health": {
+    "endpoint": "/health",
+    "leaseTtlSeconds": 300,
+    "renewBeforeSeconds": 60
+  },
+  "modelGateway": {
+    "service": "x_ModelGateway",
+    "mode": "model-neutral"
+  },
+  "processStudio": {
+    "service": "ProcessStudio",
+    "stepDispatch": "airlock-task"
+  },
+  "meshFederation": {
+    "nodeRole": "home-owner",
+    "nodeId": "node-a-osq-home",
+    "peerFailoverPolicy": "never-self-promote",
+    "protocols": ["HELLO", "ADVERTISE", "SEQUENTIAL_EXCHANGE", "WATERMARK_SNAPSHOT_PULL"]
+  },
+  "manifestIntegrity": {
+    "algorithm": "sha256",
+    "signer": "deployment-owner-policy",
+    "secretPolicy": "references-only"
+  },
+  "storage": {
+    "local": true,
+    "json": true,
+    "sqlite": true,
+    "parquet": true
+  },
+  "dependencies": [
+    "x_hubcore",
+    "quipu-observer",
+    "gard-marketplace",
+    "stockopoly"
+  ],
+  "optionalConnectors": [
+    "cpq-salesforce-intake",
+    "blue-yonder-direct-api",
+    "sap-s4-signal-bridge",
+    "ifr-auto-po-engine",
+    "rust-rfid-transit-tracker",
+    "snowflake-analytical-archive"
+  ],
+  "permissions": {
+    "filesystem": ["./out", "approved local path for integration manifests"],
+    "network": ["optional local probe to http://127.0.0.1:7100 for QUIPU observer and :8181 for Stockopoly"],
+    "tenantMutation": "none; writes integration staging files and dispatches bounded SAP signals only (raw inventory adjustments blocked)",
+    "secretValues": "never stored or logged"
+  },
+  "events": {
+    "publishes": [
+      "osq.intake.normalized",
+      "osq.forecast.cleansed",
+      "osq.delta.detected",
+      "osq.inventory.timephased",
+      "osq.quipu.curated",
+      "osq.overforecast.suppressed",
+      "osq.sku.substituted",
+      "osq.quipu.note_classified",
+      "osq.governance.approved",
+      "osq.emergency_brake.tripped",
+      "osq.approval.requested",
+      "osq.sto.duplicate_blocked",
+      "osq.blueyonder.transformed",
+      "osq.quote.split_tokenized",
+      "osq.connector.exported",
+      "osq.sap.reservations.synced",
+      "osq.ifr.po_generated",
+      "osq.receiving.quarantine_flagged",
+      "osq.rfid.transit_updated",
+      "osq.sap.signal_dispatched",
+      "osq.pathway.classified",
+      "osq.directive.emitted",
+      "osq.directive.autoclosed",
+      "osq.m365.escalation_queued",
+      "osq.return.quarantine_disposition",
+      "osq.pipeline.completed"
+    ],
+    "consumes": [
+      "cpq.quote.accepted",
+      "sfdc.opportunity.won",
+      "sap.order.booked",
+      "sap.pick.completed",
+      "quipu.calibration.updated",
+      "rfid.tag.scanned"
+    ]
+  },
+  "governance": {
+    "defaultProfile": "adaptive",
+    "profiles": {
+      "strict": {
+        "confidenceMin": 0.40,
+        "overForecastRatioCap": 1.40,
+        "maxUnapprovedImportUnits": 500,
+        "enforceAcceptedQuoteStrict": true
+      },
+      "adaptive": {
+        "confidenceMin": 0.25,
+        "overForecastRatioCap": 1.70,
+        "maxUnapprovedImportUnits": 1500,
+        "enforceAcceptedQuoteStrict": true
+      },
+      "permissive": {
+        "confidenceMin": 0.10,
+        "overForecastRatioCap": 2.50,
+        "maxUnapprovedImportUnits": 5000,
+        "enforceAcceptedQuoteStrict": false
+      }
+    }
+  }
+}

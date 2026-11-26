@@ -161,3 +161,12 @@ def test_root_serves_ui_or_hint(api):
     status, body = api("GET", "/", raw=True)
     assert status == 200
     assert "stockopoly" in body.decode("utf-8", "replace").lower()
+
+
+def test_holons_lists_registry(api):
+    status, body = api("GET", "/api/holons")
+    assert status == 200
+    ids = {h["holon_id"] for h in body["holons"]}
+    assert {"x_osq", "x_hubcore", "x_deepmap"} <= ids
+    deepmap = next(h for h in body["holons"] if h["holon_id"] == "x_deepmap")
+    assert deepmap["external"] is True and deepmap["hostRepo"] == "loadopoly/Perceptopoly"

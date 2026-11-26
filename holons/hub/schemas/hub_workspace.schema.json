@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hubcore.local/schemas/hub_workspace.schema.json",
+  "title": "hub_workspace.json",
+  "description": "Locations, datasets, endpoints, hardware, tunnels, and allocation spaces (APP_RECREATION Part 2.1). Never holds an API key, bearer token, private key, or browser profile.",
+  "type": "object",
+  "required": ["schemaVersion", "workspaceId", "library", "endpoints", "allocationSpaces"],
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$" },
+    "endpoint": {
+      "type": "object",
+      "description": "V10-CFG-003: immutable descriptor, health probe, authorization realm.",
+      "required": ["id", "port", "healthPath"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "protocol": { "enum": ["http", "https", "tcp"] },
+        "healthPath": { "type": "string" },
+        "axis": { "enum": ["entirety", "vision", "touch", "brain", "perception", "body", "space"] },
+        "serviceHost": { "type": "string", "minLength": 1 },
+        "role": { "type": "string" },
+        "bind": {
+          "description": "V10-END-001: loopback or container bridge only.",
+          "enum": ["127.0.0.1", "::1", "localhost"]
+        },
+        "realm": { "enum": ["core", "fleet", "airlock"] },
+        "required": { "type": "boolean" }
+      }
+    }
+  },
+  "properties": {
+    "schemaVersion": { "const": 10 },
+    "workspaceId": { "$ref": "#/$defs/identifier" },
+    "siteId": { "$ref": "#/$defs/identifier" },
+    "deviceId": { "$ref": "#/$defs/identifier" },
+    "library": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["sharepoint", "onedrive", "local"] },
+        "url": { "type": ["string", "null"] },
+        "localMirror": { "type": "string" },
+        "prod": { "type": "string" },
+        "uat": { "type": "string" },
+        "archive": { "type": "string" },
+        "hubData": { "type": "string" }
+      }
+    },
+    "transport": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["file", "service"] },
+        "endpoint": { "type": ["string", "null"] }
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "description": "Part 11.3 HAL. profile=auto re-derives the tier on every start.",
+      "properties": {
+        "autoDetect": { "type": "boolean" },
+        "profile": { "enum": ["auto", "cpu-only", "single-gpu", "multi-gpu", "accelerator-pool"] },
+        "vramHeadroomMb": { "type": "integer", "minimum": 0 },
+        "allowConcurrentResident": { "type": "boolean" },
+        "deviceOverrides": { "type": "object" }
+      }
+    },
+    "selfAnnealing": {
+      "type": "object",
+      "properties": {
+        "isolated": { "type": "boolean" },
+        "stateDirectory": { "type": "string" },
+        "statePackFormat": { "type": "string" },
+        "autoCheckpointHours": { "type": "number", "minimum": 0 },
+        "transferable": { "type": "boolean" }
+      }
+    },
+    "endpoints": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/endpoint" }
+    },
+    "legacyEndpoints": { "type": "object" },
+    "tunnels": { "type": "object" },
+    "airlock": {
+      "type": "object",
+      "description": "Part 1.3 Data-Only Ingress Air-Lock.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "port": { "type": "integer" },
+        "mode": { "const": "data-only" },
+        "zeroExternalCompute": { "const": true },
+        "differentialPrivacy": {
+          "type": "object",
+          "properties": {
+            "clipNorm": { "type": "number", "exclusiveMinimum": 0 },
+            "noiseMultiplier": { "type": "number", "minimum": 0 }
+          }
+        },
+        "maxPayloadBytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "allocationSpaces": {
+      "type": "object",
+      "required": ["root"],
+      "properties": {
+        "root": { "type": "string" },
+        "parquetRoot": { "type": "string" },
+        "enforceQuotas": { "type": "boolean" },
+        "defaultQuotaMb": { "type": "integer", "minimum": 0 },
+        "isolationMode": { "const": "strict-subpath-confinement" },
+        "tenants": { "type": "object" }
+      }
+    },
+    "warehouse": {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string" },
+        "path": { "type": "string" },
+        "access": { "const": "read-only" },
+        "engine": { "type": "string" },
+        "manifest": { "type": "string" }
+      }
+    },
+    "transactionalStore": {
+      "type": "object",
+      "properties": {
+        "engine": { "const": "sqlite-wal" },
+        "path": { "type": "string" },
+        "access": { "type": "string" },
+        "tenantDbTemplate": { "type": "string" }
+      }
+    },
+    "vectorStore": {
+      "type": "object",
+      "properties": {
+        "engine": { "type": "string" },
+        "library": { "enum": ["duckdb-vss", "sqlite-vec", "faiss"] },
+        "tenantVectorRoot": { "type": "string" }
+      }
+    },
+    "workers": { "type": "array" },
+    "shared": { "type": "object" }
+  }
+}

@@ -312,3 +312,23 @@ export interface EngineEvent {
 }
 
 export type Settings = Record<string, unknown>;
+
+export interface HolonEntry {
+  holon_id: string;
+  name: string;
+  version: string | null;
+  hostRepo: string;
+  path: string;
+  manifest: string | null;
+  surfaces: string[];
+  axis: string;
+  expansion?: string;
+  external: boolean;
+  capabilities: string[];
+}
+
+export interface HolonsResponse {
+  schema: string | null;
+  hub: string | null;
+  holons: HolonEntry[];
+}

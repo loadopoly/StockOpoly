@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hubcore.local/schemas/hub_org.schema.json",
+  "title": "hub_org.json",
+  "description": "Public organization and experience configuration (APP_RECREATION Part 2.1). Contains no secret and no deployment-specific identity beyond the immutable orgId.",
+  "type": "object",
+  "required": ["schemaVersion", "orgId", "chains", "capabilities", "admin"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 10 },
+    "orgId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$" },
+    "orgName": { "type": "string" },
+    "hubName": { "type": "string" },
+    "askPersona": { "type": "string" },
+    "virtualPersona": { "type": "string" },
+    "theme": {
+      "type": "object",
+      "properties": {
+        "accent": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "mode": { "enum": ["system", "light", "dark"] },
+        "logo": { "type": "string" }
+      }
+    },
+    "admin": {
+      "type": "object",
+      "required": ["subjectId"],
+      "properties": {
+        "subjectId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$" },
+        "displayName": { "type": "string" }
+      }
+    },
+    "chains": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "required": ["chainId", "label"],
+        "properties": {
+          "chainId": { "type": "string" },
+          "label": { "type": "string" },
+          "icon": { "type": "string" },
+          "order": { "type": "integer", "minimum": 1, "maximum": 7 }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "comms": { "type": "boolean" },
+        "processStudio": { "type": "boolean" },
+        "screen": { "type": "boolean" },
+        "voice": { "type": "boolean" },
+        "video": { "type": "boolean" }
+      }
+    },
+    "providerRefs": { "type": "array", "items": { "type": "string" } },
+    "federation": {
+      "type": "object",
+      "description": "Part 21. Disabled by default; consentTier 0 is Isolated.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "consentTier": { "type": "integer", "minimum": 0, "maximum": 3, "default": 0 },
+        "meshOperator": { "type": "string" },
+        "dataRightsHolder": { "type": "string" }
+      }
+    }
+  }
+}

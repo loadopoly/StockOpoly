@@ -4,6 +4,7 @@ import {
   Camera,
   Cloud,
   Group as GroupIcon,
+  Network,
   Layers,
   MapPin,
   Move3d,
@@ -26,6 +27,7 @@ import InventoryPanel from './components/inventory/InventoryPanel';
 import SlottingPanel from './components/slotting/SlottingPanel';
 import OptimizePanel from './components/optimize/OptimizePanel';
 import SettingsPanel from './components/settings/SettingsPanel';
+import HolonDeskPanel from './components/holons/HolonDeskPanel';
 
 const Map3DPanel = lazy(() => import('./components/map3d/Map3DPanel'));
 const CloudView = lazy(() => import('./components/cloud/CloudView'));
@@ -46,6 +48,7 @@ const TABS: TabDef[] = [
   { id: 'slotting', label: 'Slotting', icon: Layers, Panel: SlottingPanel },
   { id: 'optimize', label: 'Optimize', icon: Sparkles, Panel: OptimizePanel },
   { id: 'map3d', label: 'Map 3D', icon: Move3d, Panel: Map3DPanel },
+  { id: 'holons', label: 'Holon Desk', icon: Network, Panel: HolonDeskPanel },
   { id: 'settings', label: 'Settings', icon: SettingsIcon, Panel: SettingsPanel },
 ];
 

@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 10,
+  "orgId": "org-blackbulls-hideout-01",
+  "orgName": "Black Bulls Hideout",
+  "hubName": "Hideout Hub",
+  "askPersona": "Ask Advisor",
+  "virtualPersona": "Quipu",
+  "theme": {
+    "accent": "#006B5E",
+    "mode": "system",
+    "logo": "Data/hub/branding/logo.png"
+  },
+  "admin": {
+    "subjectId": "subj-hideout-admin-01",
+    "displayName": "Ask Advisor"
+  },
+  "chains": [
+    {
+      "chainId": "orchestrate",
+      "label": "Orchestrate",
+      "icon": "compass",
+      "order": 1
+    },
+    {
+      "chainId": "plan",
+      "label": "Plan",
+      "icon": "calendar",
+      "order": 2
+    },
+    {
+      "chainId": "order",
+      "label": "Order",
+      "icon": "clipboard",
+      "order": 3
+    },
+    {
+      "chainId": "source",
+      "label": "Source",
+      "icon": "truck",
+      "order": 4
+    },
+    {
+      "chainId": "transform",
+      "label": "Transform",
+      "icon": "factory",
+      "order": 5
+    },
+    {
+      "chainId": "fulfill",
+      "label": "Fulfill",
+      "icon": "package",
+      "order": 6
+    },
+    {
+      "chainId": "return",
+      "label": "Return",
+      "icon": "rotate",
+      "order": 7
+    }
+  ],
+  "capabilities": {
+    "comms": true,
+    "processStudio": true,
+    "screen": false,
+    "voice": false,
+    "video": false
+  },
+  "providerRefs": [],
+  "federation": {
+    "enabled": false,
+    "consentTier": 0,
+    "meshOperator": "Black Bulls Hideout Mesh Operations",
+    "dataRightsHolder": "Black Bulls Hideout"
+  }
+}

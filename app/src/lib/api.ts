@@ -10,6 +10,7 @@ import type {
   EngineEvent,
   ErpStatus,
   Group,
+  HolonsResponse,
   LocationRow,
   MapData,
   MoveTask,
@@ -85,6 +86,7 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
 
 export const api = {
   status: () => get<StatusResponse>('/api/status'),
+  holons: () => get<HolonsResponse>('/api/holons'),
   scbStatus: () => get<ScbStatus>('/api/scb/status'),
   scbFlush: () => post<{ flushed: number }>('/api/scb/flush'),
   events: (limit = 50) => get<{ events: EngineEvent[] }>(`/api/events?limit=${limit}`),
